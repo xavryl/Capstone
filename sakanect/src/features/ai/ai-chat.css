@@ -1,0 +1,61 @@
+/* --- POSITIONING: BOTTOM LEFT (Fixes Overlap) --- */
+.n8n-chat-widget-toggle {
+    left: 24px !important;
+    right: auto !important;
+    bottom: 24px !important;
+    z-index: 10000 !important;
+    box-shadow: 0 4px 12px rgba(147, 51, 234, 0.4) !important; /* Purple Glow */
+    transition: transform 0.3s ease !important;
+}
+
+.n8n-chat-widget-toggle:hover {
+    transform: scale(1.1) rotate(5deg);
+}
+
+.n8n-chat-widget-window {
+    left: 24px !important;
+    right: auto !important;
+    bottom: 100px !important;
+    z-index: 10000 !important;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.15) !important;
+    border: 1px solid rgba(255,255,255,0.5);
+}
+
+/* --- THEME: MODERN PURPLE --- */
+:root {
+    --chat--color--primary: #8b5cf6; /* Modern Purple */
+    --chat--color--primary-shade-50: #7c3aed;
+    --chat--color--primary--shade-100: #6d28d9;
+    --chat--color--secondary: #8b5cf6;
+    
+    --chat--color-white: #ffffff;
+    --chat--color-light: #f9fafb;
+    --chat--color-dark: #111827;
+    
+    /* Header with Gradient */
+    --chat--header--background: linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%);
+    --chat--header--color: #ffffff;
+    
+    /* Rounded & Smooth */
+    --chat--border-radius: 16px;
+    --chat--window--width: 380px;
+    --chat--window--height: 600px;
+    
+    /* Bubbles */
+    --chat--message--user--background: #8b5cf6;
+    --chat--message--user--color: #ffffff;
+    --chat--message--user--border-radius: 16px 16px 4px 16px;
+    
+    --chat--message--bot--background: #f3f4f6;
+    --chat--message--bot--color: #1f2937;
+    --chat--message--bot--border-radius: 16px 16px 16px 4px;
+
+    /* Input Area */
+    --chat--textarea--background: #f9fafb;
+    --chat--textarea--color: #374151;
+}
+
+/* Hide the 'Powered by n8n' footer if you want a cleaner look (Optional) */
+.n8n-chat-footer {
+    display: none !important;
+}
