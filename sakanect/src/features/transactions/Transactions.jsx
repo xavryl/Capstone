@@ -3,7 +3,7 @@ import { db } from '../../config/firebase';
 import { collection, query, where, onSnapshot, orderBy, getDoc, doc } from 'firebase/firestore';
 import { useAuth } from '../../context/AuthContext';
 import { updateTransactionStatus } from './transactionService';
-import { ArrowUpRight, ArrowDownLeft, Clock, Calendar, Loader2, Package } from 'lucide-react';
+import { ArrowUpRight, ArrowDownLeft, Clock, Calendar, Loader2, Package, CreditCard, CheckCircle } from 'lucide-react';
 
 // --- SWEETALERT IMPORT ---
 import Swal from 'sweetalert2';
@@ -31,14 +31,12 @@ export default function Transactions() {
     const q = query(collection(db, "transactions"), where(field, "==", user.id), orderBy("createdAt", "desc"));
 
     const unsub = onSnapshot(q, async (snap) => {
-        // We use Promise.all because we might need to fetch the Seller's name if it's missing
         const fetchedOrders = await Promise.all(snap.docs.map(async (document) => {
             const data = document.data();
             
             // --- FIX FOR MISSING SELLER NAME ---
             let displaySellerName = data.sellerName || "Unknown Seller";
             
-            // If we are the buyer and sellerName is missing in the transaction, try to fetch it from users collection
             if (activeTab === 'buying' && !data.sellerName && data.sellerId) {
                 try {
                     const sellerDoc = await getDoc(doc(db, "users", data.sellerId));
@@ -53,10 +51,9 @@ export default function Transactions() {
             return {
                 id: document.id,
                 ...data,
-                // --- MAPPING FIELDS CORRECTLY ---
                 cropTitle: data.cropTitle || "Unknown Item",
-                totalPrice: data.price_total || 0,      // MATCHED: price_total
-                quantity: data.quantity_kg || 0,        // MATCHED: quantity_kg
+                totalPrice: data.price_total || 0,      
+                quantity: data.quantity_kg || 0,        
                 sellerName: displaySellerName,
                 buyerName: data.buyerName || "Unknown Buyer",
                 status: data.status || 'pending',
@@ -76,24 +73,40 @@ export default function Transactions() {
     return () => unsub();
   }, [user, activeTab]);
 
-  const handleStatus = async (id, status) => {
+  // --- UPDATED STATUS HANDLER ---
+  const handleStatus = async (id, newStatus) => {
+    // Customize text based on status
+    let title = 'Update Status?';
+    let text = `Mark this order as ${newStatus}?`;
+    let confirmBtnText = 'Yes, update it!';
+
+    if (newStatus === 'paid') {
+        title = 'Confirm Payment Received?';
+        text = 'Only click this if you have received the Down Payment or Full Payment externally (e.g., GCash/Cash). This verifies the buyer is legitimate.';
+        confirmBtnText = 'Yes, Payment Verified';
+    } else if (newStatus === 'completed') {
+        title = 'Complete Transaction?';
+        text = 'This means the items have been successfully delivered/picked up.';
+        confirmBtnText = 'Yes, Order Complete';
+    }
+
     const result = await Swal.fire({
-        title: 'Update Status?',
-        text: `Mark this order as ${status}?`,
-        icon: 'question',
+        title: title,
+        text: text,
+        icon: newStatus === 'paid' ? 'info' : 'question',
         showCancelButton: true,
         confirmButtonColor: '#16a34a', 
         cancelButtonColor: '#6b7280',
-        confirmButtonText: 'Yes, update it!'
+        confirmButtonText: confirmBtnText
     });
 
     if (result.isConfirmed) {
         try {
-            await updateTransactionStatus(id, status);
+            await updateTransactionStatus(id, newStatus);
             Swal.fire({
                 icon: 'success',
                 title: 'Updated!',
-                text: `Order marked as ${status}.`,
+                text: `Order status changed to: ${newStatus.toUpperCase()}.`,
                 timer: 2000,
                 showConfirmButton: false
             });
@@ -109,6 +122,18 @@ export default function Transactions() {
     return new Date(timestamp.seconds * 1000).toLocaleDateString("en-US", {
         year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
     });
+  };
+
+  // Helper for Status Colors
+  const getStatusColor = (status) => {
+      switch(status) {
+          case 'pending': return 'bg-orange-100 text-orange-600 border-orange-200';
+          case 'accepted': return 'bg-blue-100 text-blue-600 border-blue-200';
+          case 'paid': return 'bg-purple-100 text-purple-600 border-purple-200'; // New Status Color
+          case 'completed': return 'bg-green-100 text-green-600 border-green-200';
+          case 'rejected': return 'bg-red-100 text-red-600 border-red-200';
+          default: return 'bg-gray-100 text-gray-600';
+      }
   };
 
   return (
@@ -181,25 +206,44 @@ export default function Transactions() {
                         </p>
                     </div>
 
-                    {/* STATUS BADGE */}
-                    <div className="flex flex-col items-end gap-2">
-                        <div className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide
-                            ${order.status === 'pending' ? 'bg-orange-100 text-orange-600' : 
-                            order.status === 'accepted' ? 'bg-blue-100 text-blue-600' :
-                            order.status === 'completed' ? 'bg-green-100 text-green-600' : 
-                            'bg-red-100 text-red-600'}`
-                        }>
-                            {order.status}
+                    {/* STATUS BADGE & ACTIONS */}
+                    <div className="flex flex-col items-end gap-2 min-w-[140px]">
+                        
+                        {/* 1. Status Badge */}
+                        <div className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide border ${getStatusColor(order.status)}`}>
+                            {order.status === 'paid' ? 'DP Paid / Verified' : order.status}
                         </div>
 
-                        {/* Completion Action (Only for Seller if Accepted) */}
-                        {activeTab === 'selling' && order.status === 'accepted' && (
-                            <button 
-                                onClick={() => handleStatus(order.id, 'completed')} 
-                                className="px-3 py-1.5 bg-saka-green text-white rounded-lg text-xs font-bold hover:bg-saka-dark transition shadow-sm"
-                            >
-                                Mark Completed
-                            </button>
+                        {/* 2. Seller Actions Flow */}
+                        {activeTab === 'selling' && (
+                            <>
+                                {/* Step 1: Accept -> Confirm Payment */}
+                                {order.status === 'accepted' && (
+                                    <button 
+                                        onClick={() => handleStatus(order.id, 'paid')} 
+                                        className="w-full px-3 py-1.5 bg-purple-600 text-white rounded-lg text-xs font-bold hover:bg-purple-700 transition shadow-sm flex items-center justify-center gap-1"
+                                    >
+                                        <CreditCard size={12} /> Confirm Payment
+                                    </button>
+                                )}
+
+                                {/* Step 2: Paid -> Completed */}
+                                {order.status === 'paid' && (
+                                    <button 
+                                        onClick={() => handleStatus(order.id, 'completed')} 
+                                        className="w-full px-3 py-1.5 bg-saka-green text-white rounded-lg text-xs font-bold hover:bg-saka-dark transition shadow-sm flex items-center justify-center gap-1"
+                                    >
+                                        <CheckCircle size={12} /> Mark Completed
+                                    </button>
+                                )}
+                            </>
+                        )}
+                        
+                        {/* Buyer Visual Feedback */}
+                        {activeTab === 'buying' && order.status === 'accepted' && (
+                            <span className="text-[10px] text-gray-400 text-right">
+                                Waiting for seller to<br/>verify payment
+                            </span>
                         )}
                     </div>
                 </div>

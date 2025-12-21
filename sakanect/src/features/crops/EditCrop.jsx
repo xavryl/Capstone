@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { storage } from '../../config/firebase';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { Sprout, MapPin, DollarSign, Scale, Loader2, Upload, X } from 'lucide-react';
+import { Sprout, MapPin, Scale, Loader2, Upload, X } from 'lucide-react'; // Removed DollarSign
 import { useDropzone } from 'react-dropzone';
 import { getCoordinates, reverseGeocode } from '../../utils/geocoding';
 import { API_URL } from '../../config/api'; 
@@ -252,7 +252,8 @@ export default function EditCrop() {
             <div>
               <label className="block text-gray-700 font-medium mb-2">Price per Kg (₱)</label>
               <div className="relative">
-                <DollarSign className="absolute left-3 top-3 text-gray-400" size={20} />
+                {/* --- CHANGED DOLLAR ICON TO PESO SYMBOL HERE --- */}
+                <span className="absolute left-3 top-3 text-gray-400 font-bold text-lg">₱</span>
                 <input type="number" name="price_per_kg" value={formData.price_per_kg} className="w-full pl-10 p-3 border rounded-lg focus:ring-2 focus:ring-saka-green outline-none" onChange={handleChange} required />
               </div>
             </div>

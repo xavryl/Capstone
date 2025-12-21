@@ -13,7 +13,8 @@ import {
   Trash2, UserMinus, MessageCircle, AlertTriangle, ShieldAlert, Tag
 } from 'lucide-react';
 import ReportModal from '../complaints/ReportModal';
-import { updateTransactionStatus } from '../transactions/transactionService'; 
+// Note: We are replacing updateTransactionStatus with direct batch logic below for atomicity
+// import { updateTransactionStatus } from '../transactions/transactionService'; 
 
 // --- SWEETALERT IMPORT ---
 import Swal from 'sweetalert2';
@@ -545,26 +546,117 @@ function FullPageChatWindow({ activeChat, currentUser, onReport }) {
       });
   };
 
-  // --- TRANSACTION HANDLER (Legacy support for old card style) ---
+  // --- UPDATED TRANSACTION HANDLER (MULTI-BUYER LOGIC) ---
   const handleTransactionAction = async (msgId, transactionId, action) => {
     try {
-        const status = action === 'accept' ? 'accepted' : 'rejected';
-        await updateTransactionStatus(transactionId, status); 
-        
-        const msgRef = doc(db, `chats/${chatId}/messages`, msgId);
-        await updateDoc(msgRef, { offerStatus: status });
+        const batch = writeBatch(db); // We use a batch to update multiple docs at once
 
+        // 1. Get the current transaction first to find the cropId
+        const transactionRef = doc(db, "transactions", transactionId);
+        const transactionSnap = await getDoc(transactionRef);
+        
+        if (!transactionSnap.exists()) {
+            Swal.fire('Error', 'Transaction not found.', 'error');
+            return;
+        }
+
+        const transactionData = transactionSnap.data();
+        const cropId = transactionData.cropId || transactionData.crop?.id; 
+        
+        // If we are ACCEPTING
         if (action === 'accept') {
+            // A. Double check if crop is ALREADY sold (Race condition check)
+            const cropRef = doc(db, "crops", cropId);
+            const cropSnap = await getDoc(cropRef);
+            
+            if (cropSnap.exists() && cropSnap.data().status === 'sold') {
+                Swal.fire('Unavailable', 'This item has already been sold to someone else!', 'error');
+                return; 
+            }
+
+            // B. Accept THIS transaction
+            batch.update(transactionRef, { status: 'accepted' });
+            
+            // Update the chat message UI
+            const msgRef = doc(db, `chats/${chatId}/messages`, msgId);
+            batch.update(msgRef, { offerStatus: 'accepted' });
+
+            // C. Mark the CROP as Sold
+            if (cropSnap.exists()) {
+                batch.update(cropRef, { status: 'sold', quantity_kg: 0 });
+            }
+
+            // D. Find & Reject ALL OTHER pending offers for this crop
+            const otherOffersQuery = query(
+                collection(db, "transactions"),
+                where("cropId", "==", cropId),
+                where("status", "==", "pending")
+            );
+            const otherOffersSnap = await getDocs(otherOffersQuery);
+
+            // Loop through the "losers" (transaction updates go in batch)
+            for (const offerDoc of otherOffersSnap.docs) {
+                if (offerDoc.id === transactionId) continue; // Skip the winner (us)
+
+                // Reject their transaction
+                batch.update(doc(db, "transactions", offerDoc.id), { status: 'rejected' });
+            }
+
+            // Commit all the status updates first
+            await batch.commit();
+
+            // E. Send Success Message to Winner (Current Chat)
             await addDoc(collection(db, `chats/${chatId}/messages`), {
-                text: "✅ Offer Accepted! Deal is now in progress.",
+                text: "✅ Offer Accepted! The item has been marked as SOLD.",
+                senderId: currentUser.id,
+                senderName: "System",
+                createdAt: serverTimestamp(),
+                isSystemMessage: true
+            });
+
+            // F. Notify losers via chat message (Runs separate from batch)
+            otherOffersSnap.docs.forEach(async (offerDoc) => {
+                if (offerDoc.id === transactionId) return;
+                const loserId = offerDoc.data().buyerId;
+                const loserChatId = [currentUser.id, loserId].sort().join("_");
+                
+                await addDoc(collection(db, `chats/${loserChatId}/messages`), {
+                    text: `❌ AUTOMATED MESSAGE: The item "${transactionData.cropTitle}" has been sold to another buyer.`,
+                    senderId: currentUser.id, // Seller ID (current user) or System
+                    senderName: "System",
+                    createdAt: serverTimestamp(),
+                    isSystemMessage: true
+                });
+            });
+
+            Swal.fire({
+                icon: 'success',
+                title: 'Deal Sealed!',
+                text: 'Offer accepted. Other buyers have been notified.',
+                timer: 2000,
+                showConfirmButton: false
+            });
+
+        } else {
+            // --- REJECT LOGIC (Simple) ---
+            batch.update(transactionRef, { status: 'rejected' });
+            const msgRef = doc(db, `chats/${chatId}/messages`, msgId);
+            batch.update(msgRef, { offerStatus: 'rejected' });
+            
+            await batch.commit();
+
+            await addDoc(collection(db, `chats/${chatId}/messages`), {
+                text: "❌ Offer Declined.",
                 senderId: currentUser.id,
                 senderName: "System",
                 createdAt: serverTimestamp(),
                 isSystemMessage: true
             });
         }
+
     } catch (error) {
         console.error("Action failed:", error);
+        Swal.fire('Error', 'Could not update transaction. Please try again.', 'error');
     }
   };
 
@@ -770,8 +862,8 @@ function FullPageChatWindow({ activeChat, currentUser, onReport }) {
           <input 
             className={`flex-1 border-0 rounded-full px-6 py-3 focus:outline-none transition
                 ${activeChat.isReportContext 
-                    ? 'bg-red-50 text-red-900 placeholder-red-300 focus:ring-2 focus:ring-red-500' 
-                    : 'bg-gray-100 focus:ring-2 focus:ring-saka-green'}`}
+                  ? 'bg-red-50 text-red-900 placeholder-red-300 focus:ring-2 focus:ring-red-500' 
+                  : 'bg-gray-100 focus:ring-2 focus:ring-saka-green'}`}
             placeholder="Type a message..."
             value={input}
             onChange={e => setInput(e.target.value)}
