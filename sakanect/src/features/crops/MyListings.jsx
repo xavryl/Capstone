@@ -2,7 +2,10 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { Loader2, Trash2, Edit, MapPin, Scale } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { API_URL } from '../../config/api'; // <--- Import API_URL
+import { API_URL } from '../../config/api'; 
+
+// --- SWEETALERT IMPORT ---
+import Swal from 'sweetalert2';
 
 export default function MyListings() {
   const { user } = useAuth();
@@ -16,7 +19,6 @@ export default function MyListings() {
 
     const fetchMyCrops = async () => {
       try {
-        // FIX: Use API_URL
         const response = await fetch(`${API_URL}/api/crops`);
         if (!response.ok) throw new Error("Failed to fetch");
         
@@ -43,24 +45,42 @@ export default function MyListings() {
     fetchMyCrops();
   }, [user]);
 
-  // 2. Handle Delete via API
+  // 2. Handle Delete via API (with SweetAlert)
   const handleDelete = async (cropId) => {
-    if (confirm("Are you sure you want to delete this listing?")) {
+    // Confirmation Modal
+    const result = await Swal.fire({
+        title: 'Delete Listing?',
+        text: "You won't be able to revert this!",
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#ef4444', // Red for danger
+        cancelButtonColor: '#6b7280', // Gray for cancel
+        confirmButtonText: 'Yes, delete it!'
+    });
+
+    if (result.isConfirmed) {
       try {
-        // FIX: Use API_URL
         const response = await fetch(`${API_URL}/api/crops/${cropId}`, {
             method: 'DELETE',
         });
 
         if (response.ok) {
             setCrops(crops.filter(c => c.id !== cropId));
-            alert("Listing deleted.");
+            
+            // Success Alert
+            Swal.fire({
+                icon: 'success',
+                title: 'Deleted!',
+                text: 'Your listing has been deleted.',
+                timer: 1500,
+                showConfirmButton: false
+            });
         } else {
-            alert("Failed to delete listing.");
+            Swal.fire('Error', 'Failed to delete listing.', 'error');
         }
       } catch (error) {
         console.error("Error deleting:", error);
-        alert("Server error.");
+        Swal.fire('Error', 'Server error. Please try again.', 'error');
       }
     }
   };
@@ -76,7 +96,7 @@ export default function MyListings() {
           <p className="text-gray-500 mb-4">You haven't posted any crops yet.</p>
           <button 
             onClick={() => navigate('/add-crop')}
-            className="bg-saka-green text-white px-6 py-2 rounded-lg font-bold hover:bg-saka-dark"
+            className="bg-saka-green text-white px-6 py-2 rounded-lg font-bold hover:bg-saka-dark transition shadow-md"
           >
             Post Your First Crop
           </button>
@@ -84,14 +104,14 @@ export default function MyListings() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {crops.map(crop => (
-            <div key={crop.id} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden flex flex-col">
+            <div key={crop.id} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden flex flex-col hover:shadow-md transition">
               <div className="h-48 bg-gray-200 relative">
                 {crop.imageUrl ? (
                   <img src={crop.imageUrl} alt={crop.title} className="w-full h-full object-cover" />
                 ) : (
                   <div className="flex items-center justify-center h-full text-gray-400">No Image</div>
                 )}
-                <div className="absolute top-2 right-2 bg-white px-2 py-1 rounded text-xs font-bold shadow-sm">
+                <div className="absolute top-2 right-2 bg-white px-2 py-1 rounded text-xs font-bold shadow-sm text-gray-700">
                   {crop.type}
                 </div>
               </div>
@@ -111,13 +131,13 @@ export default function MyListings() {
               <div className="p-4 border-t bg-gray-50 flex gap-3">
                 <button 
                   onClick={() => navigate(`/edit-crop/${crop.id}`)}
-                  className="flex-1 flex items-center justify-center gap-2 bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition"
+                  className="flex-1 flex items-center justify-center gap-2 bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition shadow-sm font-medium text-sm"
                 >
                   <Edit size={16} /> Edit
                 </button>
                 <button 
                   onClick={() => handleDelete(crop.id)}
-                  className="flex-1 flex items-center justify-center gap-2 bg-red-100 text-red-600 py-2 rounded-lg hover:bg-red-200 transition"
+                  className="flex-1 flex items-center justify-center gap-2 bg-white border border-red-200 text-red-600 py-2 rounded-lg hover:bg-red-50 transition shadow-sm font-medium text-sm"
                 >
                   <Trash2 size={16} /> Delete
                 </button>

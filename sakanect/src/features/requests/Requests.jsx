@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { db } from '../../config/firebase';
 import { collection, addDoc, query, where, orderBy, onSnapshot, serverTimestamp, doc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { useAuth } from '../../context/AuthContext';
-import { useChat } from '../../context/ChatContext';
+import { useChat } from '../../context/ChatContext'; 
 import { useNavigate } from 'react-router-dom';
 import { Plus, MessageCircle, TrendingUp, User, X, Loader2, AlertTriangle, Edit, Trash2, CheckCircle } from 'lucide-react';
 import ReportModal from '../complaints/ReportModal';
@@ -12,7 +12,7 @@ import Swal from 'sweetalert2';
 
 export default function Requests() {
   const { user } = useAuth();
-  const { startChat } = useChat();
+  const { startChat } = useChat(); 
   const navigate = useNavigate();
 
   const [activeTab, setActiveTab] = useState('market'); 
@@ -49,7 +49,9 @@ export default function Requests() {
   }, [activeTab, user]);
 
   // 2. HANDLERS
-  const handleFulfill = (req) => {
+  
+  // --- UPDATED FULFILL HANDLER WITH POPUP ---
+  const handleFulfill = async (req) => {
     if (!user) {
         Swal.fire({
             title: 'Login Required',
@@ -65,18 +67,31 @@ export default function Requests() {
     }
     if (req.requestorId === user.id) return; // Owner can't chat with self
 
-    const buyer = { 
-        name: req.requestorName, 
-        id: req.requestorId, 
-        username: req.requestorName, 
-        email: "" 
-    };
-    const msg = `Hi, I saw your request for ${req.quantity}kg of ${req.cropName}. I can supply this!`;
-    
-    startChat(buyer, msg);
+    // --- POPUP CONFIRMATION ---
+    const result = await Swal.fire({
+        title: 'Contact Buyer?',
+        text: `Do you want to message ${req.requestorName} about supplying ${req.cropName}?`,
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonColor: '#16a34a', // Saka Green
+        cancelButtonColor: '#d33',
+        confirmButtonText: 'Yes, Start Chat'
+    });
+
+    if (result.isConfirmed) {
+        const buyer = { 
+            name: req.requestorName, 
+            id: req.requestorId, 
+            username: req.requestorName, 
+            email: "" 
+        };
+        const msg = `Hi, I saw your request for ${req.quantity}kg of ${req.cropName}. I can supply this!`;
+        
+        startChat(buyer, msg);
+    }
   };
 
-  // --- NEW: MARK AS FULFILLED ---
+  // --- MARK AS FULFILLED ---
   const handleMarkFulfilled = async (reqId) => {
     const result = await Swal.fire({
         title: 'Mark as Fulfilled?',
@@ -213,7 +228,7 @@ export default function Requests() {
             return (
                 <div 
                     key={req.id} 
-                    // Non-owners can click card to chat
+                    // Non-owners can click card to chat (triggering the new handleFulfill)
                     onClick={() => !isOwner && handleFulfill(req)}
                     className={`bg-white p-5 rounded-xl shadow-sm border transition group relative ${
                         !isOwner ? 'hover:border-saka-green cursor-pointer' : 'border-gray-200'
@@ -333,7 +348,7 @@ function RequestFormModal({ onClose, user, existingRequest }) {
                 targetPrice: Number(formData.targetPrice),
                 note: formData.note,
             });
-            Swal.fire('Updated!', 'Your request has been updated.', 'success');
+            Swal.fire({ icon: 'success', title: 'Updated!', text: 'Your request has been updated.', timer: 1500, showConfirmButton: false });
         } else {
             await addDoc(collection(db, "crop_requests"), {
                 cropName: formData.cropName,
@@ -345,7 +360,7 @@ function RequestFormModal({ onClose, user, existingRequest }) {
                 status: 'open',
                 createdAt: serverTimestamp()
             });
-            Swal.fire('Posted!', 'Your request is now live.', 'success');
+            Swal.fire({ icon: 'success', title: 'Posted!', text: 'Your request is now live.', timer: 1500, showConfirmButton: false });
         }
         onClose();
     } catch (error) { 
@@ -360,7 +375,7 @@ function RequestFormModal({ onClose, user, existingRequest }) {
 
   return (
     <div className="fixed inset-0 bg-black/50 z-[9999] flex items-center justify-center p-4">
-        <div className="bg-white rounded-xl p-6 w-full max-w-md relative shadow-2xl">
+        <div className="bg-white rounded-xl p-6 w-full max-w-md relative shadow-2xl animate-in fade-in zoom-in duration-200">
             <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"><X size={20}/></button>
             <h2 className="text-xl font-bold text-gray-800 mb-4">{existingRequest ? 'Edit Request' : 'Post Request'}</h2>
             <form onSubmit={handleSubmit} className="space-y-4">
@@ -370,7 +385,7 @@ function RequestFormModal({ onClose, user, existingRequest }) {
                     <div><label className="block text-sm font-medium text-gray-700 mb-1">Target Price</label><input type="number" name="targetPrice" value={formData.targetPrice} onChange={handleChange} className="w-full p-2 border rounded-lg outline-none focus:ring-2 focus:ring-saka-green" required /></div>
                 </div>
                 <div><label className="block text-sm font-medium text-gray-700 mb-1">Note</label><textarea name="note" value={formData.note} onChange={handleChange} className="w-full p-2 border rounded-lg outline-none focus:ring-2 focus:ring-saka-green" /></div>
-                <button disabled={submitting} className="w-full bg-saka-green text-white py-3 rounded-lg font-bold hover:bg-saka-dark">{submitting ? 'Saving...' : 'Submit'}</button>
+                <button disabled={submitting} className="w-full bg-saka-green text-white py-3 rounded-lg font-bold hover:bg-saka-dark transition shadow-md">{submitting ? 'Saving...' : 'Submit'}</button>
             </form>
         </div>
     </div>

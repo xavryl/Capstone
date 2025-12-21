@@ -12,6 +12,9 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell 
 } from 'recharts';
 
+// --- SWEETALERT IMPORT ---
+import Swal from 'sweetalert2';
+
 export default function AdminDashboard() {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('market_intel'); 
@@ -84,36 +87,73 @@ export default function AdminDashboard() {
   // --- ACTIONS ---
 
   const handleBanUser = async (userId, currentStatus) => {
-    if (!userId) return alert("Error: User ID missing");
-    if (!confirm(`Are you sure you want to ${currentStatus === 'banned' ? 'unban' : 'ban'} this user?`)) return;
-    try {
-      const newRole = currentStatus === 'banned' ? 'Member' : 'banned';
-      await updateDoc(doc(db, "users", userId), { role: newRole });
-      setUsers(users.map(u => u.id === userId ? { ...u, role: newRole } : u));
-      if (newRole === 'banned') alert("User has been banned.");
-    } catch (error) { console.error(error); }
+    if (!userId) return Swal.fire('Error', 'User ID missing', 'error');
+
+    const action = currentStatus === 'banned' ? 'unban' : 'ban';
+    
+    const result = await Swal.fire({
+        title: `Confirm ${action}?`,
+        text: `Are you sure you want to ${action} this user?`,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: currentStatus === 'banned' ? '#16a34a' : '#ef4444',
+        confirmButtonText: `Yes, ${action} them`
+    });
+
+    if (result.isConfirmed) {
+        try {
+            const newRole = currentStatus === 'banned' ? 'Member' : 'banned';
+            await updateDoc(doc(db, "users", userId), { role: newRole });
+            setUsers(users.map(u => u.id === userId ? { ...u, role: newRole } : u));
+            
+            Swal.fire({
+                icon: 'success',
+                title: 'Success',
+                text: `User has been ${action}ned.`,
+                timer: 1500,
+                showConfirmButton: false
+            });
+        } catch (error) { console.error(error); }
+    }
   };
 
   const handleDeleteCrop = async (cropId) => {
-    if (!confirm("Delete this listing permanently?")) return;
-    try {
-      const response = await fetch(`${API_URL}/api/crops/${cropId}`, {
-          method: 'DELETE',
-      });
+    const result = await Swal.fire({
+        title: 'Delete Listing?',
+        text: "This action cannot be undone.",
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#ef4444',
+        confirmButtonText: 'Yes, delete it'
+    });
 
-      if (response.ok) {
-          setCrops(crops.filter(c => c.id !== cropId));
-          alert("Listing deleted.");
-      } else {
-          alert("Failed to delete listing.");
-      }
-    } catch (error) { console.error(error); }
+    if (result.isConfirmed) {
+        try {
+            const response = await fetch(`${API_URL}/api/crops/${cropId}`, {
+                method: 'DELETE',
+            });
+
+            if (response.ok) {
+                setCrops(crops.filter(c => c.id !== cropId));
+                Swal.fire('Deleted!', 'Listing removed.', 'success');
+            } else {
+                Swal.fire('Error', 'Failed to delete listing.', 'error');
+            }
+        } catch (error) { console.error(error); }
+    }
   };
 
   const handleResolveTicket = async (ticketId) => {
       try {
           await updateDoc(doc(db, "tickets", ticketId), { status: 'resolved' });
           setTickets(prev => prev.map(t => t.id === ticketId ? { ...t, status: 'resolved' } : t));
+          Swal.fire({
+             icon: 'success',
+             title: 'Resolved',
+             text: 'Ticket marked as resolved.',
+             timer: 1500,
+             showConfirmButton: false
+          });
       } catch (error) {
           console.error("Error resolving ticket:", error);
       }
@@ -153,7 +193,7 @@ export default function AdminDashboard() {
     try {
       const adminId = auth.currentUser?.uid; 
       if (!adminId) { 
-          alert("Admin not authenticated. Cannot send message."); 
+          Swal.fire('Error', 'Admin not authenticated.', 'error');
           setIsSending(false);
           return; 
       }
@@ -243,17 +283,25 @@ export default function AdminDashboard() {
 
       setModal({ ...modal, isOpen: false });
       
-      // 7. NAVIGATE TO CHAT
-      navigate('/chat', { 
-        state: { 
-          sellerId: modal.targetId, 
-          sellerName: finalTargetName 
-        } 
+      // 7. SHOW SUCCESS & NAVIGATE
+      Swal.fire({
+          icon: 'success',
+          title: 'Message Sent',
+          text: 'Redirecting to chat...',
+          timer: 1500,
+          showConfirmButton: false
+      }).then(() => {
+          navigate('/chat', { 
+            state: { 
+              sellerId: modal.targetId, 
+              sellerName: finalTargetName 
+            } 
+          });
       });
 
     } catch (error) {
       console.error("Error sending message:", error);
-      alert("Failed to send message. Check console.");
+      Swal.fire('Error', 'Failed to send message. Check console.', 'error');
     } finally {
       setIsSending(false);
     }
@@ -498,18 +546,26 @@ function CropTable({ crops, handleDeleteCrop }) {
 // --- UPDATED SMART COMPLAINT TABLE: ROBUST SEARCH ---
 function ComplaintTable({ complaints, users, crops, setComplaints, openWarnModal, handleBanUser, handleChatUser }) {
     const handleDismiss = async (complaintId) => {
-        if (!confirm("Dismiss this report?")) return;
-        try {
-            await deleteDoc(doc(db, "complaints", complaintId));
-            setComplaints(complaints.filter(c => c.id !== complaintId));
-        } catch (error) { console.error(error); }
+        const result = await Swal.fire({
+            title: 'Dismiss Report?',
+            text: "This report will be removed.",
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#16a34a',
+            confirmButtonText: 'Yes, dismiss'
+        });
+
+        if (result.isConfirmed) {
+            try {
+                await deleteDoc(doc(db, "complaints", complaintId));
+                setComplaints(complaints.filter(c => c.id !== complaintId));
+                Swal.fire('Dismissed', 'Report has been removed.', 'success');
+            } catch (error) { console.error(error); }
+        }
     };
 
     // --- HELPER: RESOLVE TARGET ID TO REAL USER ---
     const resolveComplaintTarget = (complaint) => {
-        // Log to console for debugging
-        console.log("Resolving complaint:", complaint);
-
         // 1. Direct User ID (Camel or Snake Case)
         const directUserId = complaint.accused_user_id || complaint.accusedUserId;
         if (directUserId) {
@@ -535,8 +591,6 @@ function ComplaintTable({ complaints, users, crops, setComplaints, openWarnModal
                 const sellerUser = users.find(u => u.id === sellerId);
                 const sellerName = sellerUser ? (sellerUser.username || sellerUser.name) : (cropFound.sellerName || "Unknown Seller");
                 return { id: sellerId, name: sellerName };
-            } else {
-                console.warn("Found crop, but no seller ID:", cropFound);
             }
         }
 

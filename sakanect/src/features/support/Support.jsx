@@ -3,6 +3,10 @@ import { db } from '../../config/firebase';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { useAuth } from '../../context/AuthContext';
 import { HelpCircle, ChevronDown, ChevronUp, Send, Loader2, MessageSquare } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+
+// --- SWEETALERT IMPORT ---
+import Swal from 'sweetalert2';
 
 const FAQS = [
   {
@@ -29,6 +33,7 @@ const FAQS = [
 
 export default function Support() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [openIndex, setOpenIndex] = useState(null);
   
   // Ticket State
@@ -43,7 +48,21 @@ export default function Support() {
 
   const handleSubmitTicket = async (e) => {
     e.preventDefault();
-    if (!user) return alert("Please log in to submit a ticket.");
+    
+    // --- LOGIN CHECK WITH SWAL ---
+    if (!user) {
+        Swal.fire({
+            title: 'Login Required',
+            text: "Please log in to submit a support ticket.",
+            icon: 'info',
+            showCancelButton: true,
+            confirmButtonColor: '#16a34a',
+            confirmButtonText: 'Go to Login'
+        }).then((result) => {
+            if (result.isConfirmed) navigate('/login');
+        });
+        return;
+    }
     
     setLoading(true);
     try {
@@ -58,13 +77,28 @@ export default function Support() {
         createdAt: serverTimestamp()
       });
       
-      alert("Ticket submitted! Our support team will contact you soon.");
+      // --- SUCCESS ALERT ---
+      Swal.fire({
+        icon: 'success',
+        title: 'Ticket Submitted!',
+        text: 'Our support team will contact you soon.',
+        timer: 3000,
+        showConfirmButton: false
+      });
+
       setSubject('');
       setMessage('');
       setCategory('General');
     } catch (error) {
       console.error("Error submitting ticket:", error);
-      alert("Failed to submit ticket.");
+      
+      // --- ERROR ALERT ---
+      Swal.fire({
+        icon: 'error',
+        title: 'Submission Failed',
+        text: 'Failed to submit ticket. Please try again.',
+        confirmButtonColor: '#ef4444'
+      });
     } finally {
       setLoading(false);
     }
@@ -118,7 +152,7 @@ export default function Support() {
                 <select 
                   value={category}
                   onChange={(e) => setCategory(e.target.value)}
-                  className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-saka-green outline-none text-sm"
+                  className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-saka-green outline-none text-sm bg-white"
                 >
                   <option value="General">General Inquiry</option>
                   <option value="Account">Account Issue</option>
@@ -146,7 +180,7 @@ export default function Support() {
                   placeholder="Describe your issue in detail..."
                   value={message}
                   onChange={(e) => setMessage(e.target.value)}
-                  className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-saka-green outline-none text-sm"
+                  className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-saka-green outline-none text-sm resize-none"
                   required
                 />
               </div>

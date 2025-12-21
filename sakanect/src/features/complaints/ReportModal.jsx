@@ -3,6 +3,9 @@ import { db } from '../../config/firebase';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { X, AlertTriangle, Send, Loader2 } from 'lucide-react';
 
+// --- SWEETALERT IMPORT ---
+import Swal from 'sweetalert2';
+
 // Common reasons for reporting
 const commonReasons = [
   "Inappropriate or abusive language",
@@ -23,7 +26,7 @@ export default function ReportModal({ target, targetType, reporterId, onClose })
 
     try {
       await addDoc(collection(db, "complaints"), {
-        type: targetType, // 'User' or 'Crop'
+        type: targetType, // 'User' or 'Crop' or 'Request'
         targetId: target.id,
         targetName: target.name,
         reporterId: reporterId,
@@ -33,11 +36,28 @@ export default function ReportModal({ target, targetType, reporterId, onClose })
         submittedAt: serverTimestamp()
       });
 
-      alert(`Report submitted successfully! The admin team will review ${target.name}.`);
+      // Close the modal first so the alert is clearly visible on the main screen
       onClose();
+
+      // --- SUCCESS ALERT ---
+      Swal.fire({
+        icon: 'success',
+        title: 'Report Submitted',
+        text: `The admin team will review ${target.name} shortly.`,
+        timer: 2500,
+        showConfirmButton: false
+      });
+
     } catch (error) {
       console.error("Error submitting complaint:", error);
-      alert("Failed to submit report. Please try again.");
+      
+      // --- ERROR ALERT ---
+      Swal.fire({
+        icon: 'error',
+        title: 'Submission Failed',
+        text: 'Could not submit the report. Please try again later.',
+        confirmButtonColor: '#ef4444' // Red color for error
+      });
     } finally {
       setSubmitting(false);
     }
@@ -45,7 +65,7 @@ export default function ReportModal({ target, targetType, reporterId, onClose })
 
   return (
     <div className="fixed inset-0 bg-black/60 z-[9999] flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl p-6 w-full max-w-md relative shadow-2xl">
+      <div className="bg-white rounded-xl p-6 w-full max-w-md relative shadow-2xl animate-in fade-in zoom-in duration-200">
         <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
           <X size={20} />
         </button>
@@ -55,7 +75,7 @@ export default function ReportModal({ target, targetType, reporterId, onClose })
           <h2 className="text-xl font-bold text-gray-800">Report {targetType}</h2>
         </div>
         
-        <p className="text-sm text-gray-500 mb-6">You are reporting **{target.name}**. Please choose a reason below. This report is confidential.</p>
+        <p className="text-sm text-gray-500 mb-6">You are reporting <span className="font-bold text-gray-800">{target.name}</span>. Please choose a reason below. This report is confidential.</p>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           
@@ -65,7 +85,7 @@ export default function ReportModal({ target, targetType, reporterId, onClose })
             <select
               value={reason}
               onChange={(e) => setReason(e.target.value)}
-              className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-red-500 outline-none"
+              className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-red-500 outline-none bg-white"
               required
             >
               {commonReasons.map(r => <option key={r} value={r}>{r}</option>)}
@@ -78,7 +98,7 @@ export default function ReportModal({ target, targetType, reporterId, onClose })
             <label className="block text-sm font-medium text-gray-700 mb-1">Additional Details (Max 200 chars)</label>
             <textarea
               rows="3"
-              className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-red-500 outline-none text-sm"
+              className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-red-500 outline-none text-sm resize-none"
               placeholder="Provide details about the issue..."
               value={details}
               onChange={(e) => setDetails(e.target.value)}
