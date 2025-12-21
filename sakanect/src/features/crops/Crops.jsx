@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { 
   Loader2, Search, Filter, SlidersHorizontal, 
-  Map as MapIcon, RefreshCcw, X, LayoutGrid, Tag // <--- Added Tag Icon
+  Map as MapIcon, RefreshCcw, X, LayoutGrid, Tag 
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { getCoordinates, calculateDistance } from '../../utils/geocoding';
@@ -13,7 +13,7 @@ import CropCard from './CropCard';
 import CropMap from './CropMap'; 
 
 // --- SWEETALERT IMPORT ---
-import Swal from 'sweetalert2'; // Assuming you use this now
+import Swal from 'sweetalert2';
 
 export default function Crops() {
   const { user } = useAuth();
@@ -37,7 +37,7 @@ export default function Crops() {
   const [radius, setRadius] = useState(20); 
   const [cityCoords, setCityCoords] = useState(null);
 
-  // 1. Fetch Data & Fix Coordinates (Same as before)
+  // 1. Fetch Data
   const fetchCrops = async () => {
     setLoading(true);
     try {
@@ -58,6 +58,8 @@ export default function Crops() {
         return {
             ...crop,
             id: crop._id, 
+            // Ensure we have a valid seller ID
+            sellerId: crop.sellerId || crop.user_id, 
             coordinates: { lat, lng } 
         };
       });
@@ -76,7 +78,7 @@ export default function Crops() {
     fetchCrops();
   }, []);
 
-  // 2. Auto-Apply User Location (Same as before)
+  // 2. Auto-Apply User Location
   useEffect(() => {
     if (user && user.locationCoords && user.city) {
         setTargetCity(user.city);
@@ -85,7 +87,7 @@ export default function Crops() {
     }
   }, [user]);
 
-  // 3. Handle Manual City Search (Same as before)
+  // 3. Handle Manual City Search
   const handleCitySearch = async () => {
     if (!targetCity.trim()) {
       setCityCoords(null);
@@ -100,7 +102,7 @@ export default function Crops() {
     }
   };
 
-  // 4. Filtering Logic (Same as before)
+  // 4. Filtering Logic
   const filteredCrops = crops
     .map(crop => {
       let distance = null;
@@ -156,7 +158,7 @@ export default function Crops() {
     fetchCrops(); 
   };
 
-  // --- 5. CHAT & OFFER HANDLERS ---
+  // --- 5. HANDLERS ---
 
   const handleChatClick = (crop) => {
     if (!user) {
@@ -165,46 +167,76 @@ export default function Crops() {
     }
     navigate('/chat', { 
       state: { 
-        sellerId: crop.user_id, 
+        sellerId: crop.sellerId, 
         cropId: crop.id,
         cropTitle: crop.title
       } 
     });
   };
 
+  // --- UPDATED MAKE OFFER HANDLER (Counter Offer + Quantity) ---
   const handleMakeOffer = async (crop) => {
     if (!user) {
         Swal.fire({ icon: 'info', title: 'Login Required', text: 'Please login to make an offer.', confirmButtonColor: '#16a34a' });
         return;
     }
 
-    // --- SWEETALERT INPUT MODAL ---
-    const { value: offerPrice } = await Swal.fire({
-        title: `Make an Offer for ${crop.title}`,
-        text: `Original Price: ₱${crop.price_per_kg}/kg`,
-        input: 'number',
-        inputLabel: 'Your Price per Kg (₱)',
-        inputPlaceholder: 'Enter your offer...',
+    // --- SWEETALERT: DUAL INPUT MODAL ---
+    const { value: formValues } = await Swal.fire({
+        title: `Make an Offer`,
+        html: `
+            <div style="text-align: left; margin-bottom: 10px;">
+                <p style="font-size: 14px; color: #555;">Item: <b>${crop.title}</b></p>
+                <p style="font-size: 14px; color: #555;">Asking Price: <b style="color: #16a34a">₱${crop.price_per_kg}/kg</b></p>
+                <hr style="margin: 15px 0; border-top: 1px dashed #ccc;">
+                
+                <label style="display:block; font-size:12px; font-weight:bold; color:#777; margin-bottom:5px;">YOUR COUNTER OFFER (₱/kg)</label>
+                <input id="swal-input-price" type="number" class="swal2-input" placeholder="Price per kg" value="${crop.price_per_kg}" style="margin: 0 0 15px 0; width: 100%;">
+                
+                <label style="display:block; font-size:12px; font-weight:bold; color:#777; margin-bottom:5px;">QUANTITY (kg)</label>
+                <input id="swal-input-qty" type="number" class="swal2-input" placeholder="Amount (kg)" value="1" style="margin: 0; width: 100%;">
+                <p style="font-size: 10px; color: #999; margin-top: 5px;">Available: ${crop.quantity_kg}kg</p>
+            </div>
+        `,
+        focusConfirm: false,
         showCancelButton: true,
         confirmButtonColor: '#16a34a',
         cancelButtonColor: '#6b7280',
         confirmButtonText: 'Send Offer',
-        inputValidator: (value) => {
-            if (!value || value <= 0) {
-              return 'Please enter a valid amount!';
+        preConfirm: () => {
+            const price = document.getElementById('swal-input-price').value;
+            const qty = document.getElementById('swal-input-qty').value;
+
+            if (!price || price <= 0) {
+                Swal.showValidationMessage('Please enter a valid price');
+                return false;
             }
+            if (!qty || qty <= 0) {
+                Swal.showValidationMessage('Please enter a valid quantity');
+                return false;
+            }
+            if (qty > crop.quantity_kg) {
+                Swal.showValidationMessage(`Only ${crop.quantity_kg}kg available!`);
+                return false;
+            }
+
+            return { offerPrice: price, offerQty: qty };
         }
     });
 
-    if (offerPrice) {
-        // Navigate to Chat, passing the Offer Amount
+    if (formValues) {
+        const { offerPrice, offerQty } = formValues;
+
+        // Navigate to Chat, passing BOTH Price and Quantity
         navigate('/chat', { 
             state: { 
-              sellerId: crop.user_id, 
+              sellerId: crop.sellerId, 
               cropId: crop.id,
               cropTitle: crop.title,
-              offerAmount: offerPrice, // <--- PASSING THE OFFER
-              originalPrice: crop.price_per_kg
+              offerAmount: offerPrice,  // The Counter Price
+              offerQuantity: offerQty,  // The Quantity
+              originalPrice: crop.price_per_kg,
+              sellerName: crop.sellerName
             } 
         });
     }
@@ -278,7 +310,7 @@ export default function Crops() {
               <button
                 key={type}
                 onClick={() => setFilterType(type)}
-                className={`px-4 py-2 rounded-md text-sm font-medium transition whitespace-nowrap flex-1 sm:flex-none ${filterType === type ? 'bg-white text-saka-green shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                className={`px-4 py-2 rounded-md text-sm font-medium transition whitespace-pre ${filterType === type ? 'bg-white text-saka-green shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
               >
                 {type}
               </button>
@@ -325,7 +357,7 @@ export default function Crops() {
                         crop={crop} 
                         // Normal Chat
                         onChat={() => handleChatClick(crop)}
-                        // --- NEW: MAKE OFFER HANDLER ---
+                        // --- UPDATED: MAKE OFFER HANDLER ---
                         onOffer={() => handleMakeOffer(crop)} 
                       />
                       

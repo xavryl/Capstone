@@ -1,8 +1,7 @@
 import { useState } from 'react';
-import { MapPin, Scale, MessageCircle, ShoppingCart, X, AlertTriangle, Upload, FileText } from 'lucide-react';
+import { MapPin, Scale, MessageCircle, ShoppingCart, X, AlertTriangle, Upload, FileText, Tag } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
-import { createTransaction } from '../transactions/transactionService'; 
 import { db, storage } from '../../config/firebase';
 import { collection, addDoc, serverTimestamp, setDoc, doc, arrayUnion } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
@@ -22,6 +21,7 @@ export default function CropCard({ crop }) {
 
   // Form States
   const [offerData, setOfferData] = useState({
+    price: crop.price_per_kg || 0, // NEW: Counter Price Field
     quantity: 1,
     barterItem: '',
     barterQuantity: '',
@@ -56,10 +56,12 @@ export default function CropCard({ crop }) {
         });
         return;
     }
+    // Set default price to asking price when opening
+    setOfferData(prev => ({...prev, price: crop.price_per_kg || 0}));
     setIsModalOpen(true);
   };
 
-  // --- Navigate to Chat Page ---
+  // --- Navigate to Chat Page (General Chat) ---
   const handleRequest = () => {
     if (!user) {
         Swal.fire({
@@ -84,47 +86,44 @@ export default function CropCard({ crop }) {
         return;
     }
 
-    // Navigate to the Chat Page passing necessary details
     navigate('/chat', { 
       state: { 
-        sellerId: crop.sellerId, // Ensures the chat opens with this seller
-        cropId: crop.id,         // Context for the chat
+        sellerId: crop.sellerId,
+        cropId: crop.id, 
         cropTitle: crop.title
       } 
     });
   };
 
+  // --- CONFIRM OFFER & REDIRECT TO CHAT ---
   const handleConfirmOffer = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
 
     try {
-        let finalOfferData = { ...offerData };
-        let messageText = "";
+        // --- 1. BARTER & DONATION LOGIC (Sends Message Directly via Firebase) ---
+        if (crop.type === 'Barter' || crop.type === 'Donation') {
+            let messageText = "";
+            let proofUrl = null;
 
-        if (crop.type === 'For Sale') {
-            messageText = `I made an offer to buy ${offerData.quantity}kg of ${crop.title} at ₱${crop.price_per_kg}/kg.`;
-        } else if (crop.type === 'Barter') {
-            if (!offerData.barterItem) throw new Error("Please specify what you are trading.");
-            messageText = `I want to barter ${offerData.barterQuantity} of ${offerData.barterItem} for your ${offerData.quantity}kg of ${crop.title}.`;
-        } else if (crop.type === 'Donation') {
-            if (!offerData.proofFile) throw new Error("Please upload proof of legitimacy.");
+            if (crop.type === 'Barter') {
+                if (!offerData.barterItem) throw new Error("Please specify what you are trading.");
+                messageText = `I want to barter ${offerData.barterQuantity} of ${offerData.barterItem} for your ${offerData.quantity}kg of ${crop.title}.`;
+            } else if (crop.type === 'Donation') {
+                if (!offerData.proofFile) throw new Error("Please upload proof of legitimacy.");
+                
+                const fileRef = ref(storage, `proofs/${user.id}/${Date.now()}_${offerData.proofFile.name}`);
+                const uploadRes = await uploadBytes(fileRef, offerData.proofFile);
+                proofUrl = await getDownloadURL(uploadRes.ref);
+                
+                messageText = `I requested a donation of ${offerData.quantity}kg of ${crop.title} for ${offerData.organizationName}. Proof attached.`;
+            }
+
+            // Create Transaction/Message logic for Barter/Donation
+            // (You can keep your existing logic here or redirect to Chat like For Sale)
+            // For consistency, let's redirect to Chat with a pre-filled message:
             
-            const fileRef = ref(storage, `proofs/${user.id}/${Date.now()}_${offerData.proofFile.name}`);
-            const uploadRes = await uploadBytes(fileRef, offerData.proofFile);
-            const proofUrl = await getDownloadURL(uploadRes.ref);
-            
-            finalOfferData.proofUrl = proofUrl;
-            messageText = `I requested a donation of ${offerData.quantity}kg of ${crop.title} for ${offerData.organizationName}. Proof attached.`;
-        }
-
-        // 1. Create Transaction and GET ID
-        const result = await createTransaction(crop, user, finalOfferData);
-        
-        if (result.success) {
-            const transactionId = result.id; 
-
-            // 2. Send Chat Notification WITH TRANSACTION ID
+            // NOTE: Since Donation requires file upload, we handle it here then redirect
             const chatId = [user.id, crop.sellerId].sort().join("_");
             
             await addDoc(collection(db, `chats/${chatId}/messages`), {
@@ -132,15 +131,17 @@ export default function CropCard({ crop }) {
                 senderId: user.id,
                 senderName: user.username || user.name,
                 createdAt: serverTimestamp(),
-                isSystemMessage: true,
-                transactionId: transactionId, 
-                offerQuantity: offerData.quantity,
-                offerCropId: crop.id
+                isOffer: true, // Treat as offer
+                offerAmount: 0, // No money involved
+                cropTitle: crop.title,
+                cropId: crop.id,
+                offerStatus: 'pending',
+                proofUrl: proofUrl
             });
 
             await setDoc(doc(db, "conversations", chatId), {
                 participants: [user.id, crop.sellerId],
-                lastMessage: `Offer: ${crop.title}`,
+                lastMessage: `Request: ${crop.title}`,
                 lastSenderId: user.id,
                 lastMessageTime: serverTimestamp(),
                 users: {
@@ -150,18 +151,36 @@ export default function CropCard({ crop }) {
                 unreadBy: arrayUnion(crop.sellerId)
             }, { merge: true });
 
-            // --- SWEETALERT SUCCESS ---
-            await Swal.fire({
-                icon: 'success',
-                title: 'Offer Sent!',
-                text: 'Check your Transactions page for status updates.',
-                timer: 2500,
-                showConfirmButton: false
-            });
-            
             setIsModalOpen(false);
-        } else {
-            throw new Error("Transaction creation failed.");
+            navigate('/chat', { state: { sellerId: crop.sellerId } }); // Go to chat
+            return;
+        }
+
+        // --- 2. FOR SALE LOGIC (Redirects to Chat with Offer Params) ---
+        if (crop.type === 'For Sale') {
+            if (offerData.quantity > crop.quantity_kg) {
+                throw new Error(`Only ${crop.quantity_kg}kg available!`);
+            }
+            if (offerData.price <= 0) {
+                throw new Error("Please enter a valid price.");
+            }
+
+            // We do NOT create the message here. 
+            // We pass the data to Chat.jsx via navigation state, 
+            // and Chat.jsx handles creating the standardized "Offer Card".
+            
+            navigate('/chat', { 
+                state: { 
+                  sellerId: crop.sellerId, 
+                  cropId: crop.id,
+                  cropTitle: crop.title,
+                  offerAmount: offerData.price, // User's Counter Offer
+                  originalPrice: crop.price_per_kg,
+                  offerQuantity: offerData.quantity, // User's Quantity
+                  sellerName: crop.sellerName
+                } 
+            });
+            setIsModalOpen(false);
         }
 
     } catch (err) {
@@ -180,6 +199,7 @@ export default function CropCard({ crop }) {
   return (
     <>
       <div className="bg-white rounded-xl shadow-sm hover:shadow-md transition overflow-hidden border border-gray-100 flex flex-col h-full">
+        {/* IMAGE AREA */}
         <div className="h-48 bg-gray-200 w-full flex items-center justify-center text-gray-500 relative">
             {crop.imageUrl ? (
             <img src={crop.imageUrl} alt={crop.title} className="w-full h-full object-cover" />
@@ -199,6 +219,7 @@ export default function CropCard({ crop }) {
             </div>
         </div>
         
+        {/* DETAILS AREA */}
         <div className="p-4 flex flex-col flex-grow">
             <div className="flex justify-between items-start mb-2">
                 <h3 className="font-bold text-lg text-gray-800 line-clamp-1">{crop.title}</h3>
@@ -245,27 +266,31 @@ export default function CropCard({ crop }) {
         </div>
       </div>
 
+      {/* --- OFFER MODAL --- */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/50 z-[9999] flex items-center justify-center p-4">
             <div className="bg-white rounded-xl p-6 w-full max-w-sm relative shadow-2xl animate-in fade-in zoom-in duration-200">
                 <button onClick={() => setIsModalOpen(false)} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"><X size={20}/></button>
-                <h3 className="text-xl font-bold text-gray-800 mb-4">
-                    {crop.type === 'Donation' ? 'Request Donation' : crop.type === 'Barter' ? 'Offer Barter' : 'Buy Crop'}
+                <h3 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+                    {crop.type === 'Donation' ? 'Request Donation' : crop.type === 'Barter' ? 'Offer Barter' : 'Make an Offer'}
                 </h3>
                 
+                {/* Crop Summary */}
                 <div className="mb-4 bg-gray-50 p-3 rounded-lg flex gap-3 items-center border border-gray-100">
                     <div className="w-12 h-12 bg-gray-200 rounded-md overflow-hidden shrink-0">
                         {crop.imageUrl && <img src={crop.imageUrl} className="w-full h-full object-cover"/>}
                     </div>
                     <div>
                         <p className="font-bold text-sm text-gray-800">{crop.title}</p>
-                        <p className="text-xs text-gray-500">{crop.location}</p>
+                        <p className="text-xs text-gray-500">Asking: <span className="text-saka-green font-bold">₱{crop.price_per_kg}/kg</span></p>
                     </div>
                 </div>
 
                 <form onSubmit={handleConfirmOffer} className="space-y-4">
+                    
+                    {/* -- QUANTITY INPUT (For All Types) -- */}
                     <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Quantity Needed (kg)</label>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Quantity (kg)</label>
                         <input 
                             type="number" min="1" max={crop.quantity_kg}
                             value={offerData.quantity} 
@@ -273,18 +298,33 @@ export default function CropCard({ crop }) {
                             className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-saka-green outline-none font-medium"
                             required
                         />
-                        <p className="text-xs text-gray-500 mt-1">Available: {crop.quantity_kg}kg</p>
+                        <p className="text-xs text-gray-500 mt-1 text-right">Max available: {crop.quantity_kg}kg</p>
                     </div>
 
+                    {/* -- FOR SALE: COUNTER OFFER PRICE -- */}
                     {crop.type === 'For Sale' && (
-                        <div className="flex justify-between items-center border-t pt-4">
-                            <span className="text-gray-600 font-medium">Total Price:</span>
-                            <span className="text-xl font-bold text-saka-green">
-                                ₱{(offerData.quantity * crop.price_per_kg).toFixed(2)}
-                            </span>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-2">
+                                <Tag size={14} className="text-saka-green"/> Your Counter Offer (₱/kg)
+                            </label>
+                            <input 
+                                type="number" min="1" 
+                                value={offerData.price} 
+                                onChange={(e) => setOfferData({...offerData, price: e.target.value})}
+                                className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-saka-green outline-none font-medium text-lg text-saka-green"
+                                required
+                            />
+                            
+                            <div className="flex justify-between items-center border-t pt-4 mt-2">
+                                <span className="text-gray-600 font-medium">Total:</span>
+                                <span className="text-xl font-bold text-saka-green">
+                                    ₱{(offerData.quantity * offerData.price).toFixed(2)}
+                                </span>
+                            </div>
                         </div>
                     )}
 
+                    {/* -- BARTER INPUTS -- */}
                     {crop.type === 'Barter' && (
                         <>
                             <div>
@@ -310,6 +350,7 @@ export default function CropCard({ crop }) {
                         </>
                     )}
 
+                    {/* -- DONATION INPUTS -- */}
                     {crop.type === 'Donation' && (
                         <>
                              <div>
@@ -353,7 +394,7 @@ export default function CropCard({ crop }) {
                         crop.type === 'Barter' ? 'bg-orange-500 hover:bg-orange-600' : 
                         'bg-saka-green hover:bg-saka-dark'
                     }`}>
-                        {isSubmitting ? 'Submitting...' : `Confirm ${crop.type === 'Donation' ? 'Request' : 'Offer'}`}
+                        {isSubmitting ? 'Sending...' : 'Send Offer'}
                     </button>
                 </form>
             </div>

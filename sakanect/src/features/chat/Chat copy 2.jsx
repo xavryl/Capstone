@@ -15,6 +15,7 @@ import {
 import ReportModal from '../complaints/ReportModal';
 import { API_URL } from '../../config/api'; 
 
+// --- SWEETALERT IMPORT ---
 import Swal from 'sweetalert2';
 
 export default function Chat() {
@@ -27,6 +28,8 @@ export default function Chat() {
   
   const [friends, setFriends] = useState([]); 
   const [incomingRequests, setIncomingRequests] = useState([]);
+  
+  // ERROR FIX 1: 'outgoingRequests' is used to show "Pending" status in search
   const [outgoingRequests, setOutgoingRequests] = useState([]); 
   
   const [activeTab, setActiveTab] = useState('chats'); 
@@ -128,7 +131,8 @@ export default function Chat() {
         if (friendIds.length > 0) {
           const friendPromises = friendIds.map(fid => getDoc(doc(db, "users", fid)));
           const friendSnaps = await Promise.all(friendPromises);
-          setFriends(friendSnaps.filter(snap => snap.exists()).map(snap => ({ id: snap.id, ...snap.data() })));
+          const friendList = friendSnaps.filter(snap => snap.exists()).map(snap => ({ id: snap.id, ...snap.data() }));
+          setFriends(friendList);
         } else { setFriends([]); }
       }
     });
@@ -150,7 +154,6 @@ export default function Chat() {
     const q = query(collection(db, "friend_requests"), where("fromUid", "==", currentUser.id));
     const unsub = onSnapshot(q, (snap) => {
       const reqs = snap.docs.map(doc => ({ id: doc.id, ...doc.data() })).sort((a,b)=> (b.createdAt?.seconds||0)-(a.createdAt?.seconds||0));
-      // Store just IDs for easier checking
       setOutgoingRequests(reqs.map(r => r.toUid));
     });
     return () => unsub();
@@ -169,18 +172,33 @@ export default function Chat() {
     return () => unsub();
   }, [currentUser]);
 
+  useEffect(() => {
+    const searchUsers = async () => {
+      if (searchTerm.trim() === '') { setSearchResults([]); return; }
+      const q = query(collection(db, "users"), where("username", ">=", searchTerm), where("username", "<=", searchTerm + '\uf8ff'));
+      try {
+        const snapshot = await getDocs(q);
+        const foundUsers = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })).filter(u => u.id !== currentUser.id);
+        setSearchResults(foundUsers);
+      } catch (error) { console.error(error); }
+    };
+    const delayDebounce = setTimeout(() => { searchUsers(); }, 500);
+    return () => clearTimeout(delayDebounce);
+  }, [searchTerm, currentUser?.id]);
+
   // --- HANDLERS ---
+
   const handleSelectChat = async (user) => {
     setActiveChat({ name: user.name||user.username, id: user.id, email: user.email, username: user.username||user.name, photoURL: user.photoURL });
     const chatId = [currentUser.id, user.id].sort().join("_");
     try { 
         await updateDoc(doc(db, "conversations", chatId), { [`unread.${currentUser.id}`]: false }); 
-    } catch (error) {
-        // Log error to satisfy no-empty, though typically safe to ignore if doc doesn't exist yet
-        console.log("New chat initialized", error);
+    } catch (e) {
+        console.log("Chat init", e);
     }
   };
 
+  // ERROR FIX 2: This is used in the Search Results list
   const handleSendRequest = async (targetUser) => {
     try {
       await addDoc(collection(db, "friend_requests"), {
@@ -216,6 +234,7 @@ export default function Chat() {
     await deleteDoc(doc(db, "friend_requests", requestId));
   };
   
+  // ERROR FIX 3: This is used in the Friends Tab list
   const handleRemoveFriend = async (friendId, friendName) => {
     const result = await Swal.fire({
         title: 'Remove Friend?',
@@ -232,6 +251,7 @@ export default function Chat() {
     }
   };
 
+  // ERROR FIX 4: This is used in the Chats Tab list
   const handleRemoveConversation = async (convId) => {
     const result = await Swal.fire({
         title: 'Delete Chat?',
@@ -248,21 +268,6 @@ export default function Chat() {
     }
   };
 
-  // Search Logic (moved down to keep handlers together)
-  useEffect(() => {
-    const searchUsers = async () => {
-      if (searchTerm.trim() === '') { setSearchResults([]); return; }
-      const q = query(collection(db, "users"), where("username", ">=", searchTerm), where("username", "<=", searchTerm + '\uf8ff'));
-      try {
-        const snapshot = await getDocs(q);
-        const foundUsers = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })).filter(u => u.id !== currentUser.id);
-        setSearchResults(foundUsers);
-      } catch (error) { console.error(error); }
-    };
-    const delayDebounce = setTimeout(() => { searchUsers(); }, 500);
-    return () => clearTimeout(delayDebounce);
-  }, [searchTerm, currentUser?.id]);
-
   if (!currentUser) return <div className="p-10 text-center">Please login to chat.</div>;
 
   return (
@@ -271,7 +276,6 @@ export default function Chat() {
       <div className="w-1/3 border-r flex flex-col bg-gray-50">
         <div className="p-4 border-b bg-white">
           <h2 className="font-bold text-xl text-gray-800 mb-4">Messages</h2>
-          
           <div className="flex gap-1 mb-4 p-1 bg-gray-100 rounded-lg">
             {['chats', 'friends', 'requests'].map(tab => (
               <button 
@@ -280,14 +284,11 @@ export default function Chat() {
                 className={`flex-1 py-1.5 text-xs font-bold uppercase rounded-md transition ${activeTab === tab ? 'bg-white shadow text-saka-green' : 'text-gray-500 hover:text-gray-700'}`}
               >
                 {tab === 'requests' && incomingRequests.length > 0 ? (
-                  <span className="flex items-center justify-center gap-1">
-                    Reqs <span className="bg-red-500 text-white text-[10px] px-1.5 rounded-full">{incomingRequests.length}</span>
-                  </span>
+                  <span className="flex items-center justify-center gap-1">Reqs <span className="bg-red-500 text-white text-[10px] px-1.5 rounded-full">{incomingRequests.length}</span></span>
                 ) : tab}
               </button>
             ))}
           </div>
-
           <div className="relative">
             <Search className="absolute left-3 top-3 text-gray-400" size={18} />
             <input 
@@ -297,13 +298,15 @@ export default function Chat() {
             />
           </div>
         </div>
-
         <div className="flex-1 overflow-y-auto p-2 space-y-1">
+          
+          {/* --- SEARCH RESULTS --- */}
           {searchTerm ? (
             <>
               <p className="px-3 py-2 text-xs font-bold text-gray-400 uppercase">Results</p>
               {searchResults.map(user => {
                 const isFriend = friends.some(f => f.id === user.id);
+                // USAGE OF outgoingRequests:
                 const isPending = outgoingRequests.includes(user.id);
                 
                 return (
@@ -324,6 +327,7 @@ export default function Chat() {
                     ) : isPending ? (
                       <span className="text-xs text-orange-500 font-bold flex items-center gap-1"><Clock size={12}/> Pending</span>
                     ) : (
+                      // USAGE OF handleSendRequest:
                       <button onClick={() => handleSendRequest(user)} className="p-2 bg-gray-200 text-gray-600 rounded-full hover:bg-saka-green hover:text-white transition">
                         <UserPlus size={18} />
                       </button>
@@ -334,6 +338,7 @@ export default function Chat() {
             </>
           ) : (
             <>
+              {/* --- FRIEND REQUESTS --- */}
               {activeTab === 'requests' && (
                 <>
                   {incomingRequests.length === 0 && <p className="text-center text-gray-400 text-sm mt-10">No pending requests</p>}
@@ -357,6 +362,7 @@ export default function Chat() {
                 </>
               )}
 
+              {/* --- FRIENDS LIST --- */}
               {activeTab === 'friends' && (
                 <>
                   {friends.length === 0 && <p className="text-center text-gray-400 text-sm mt-10">No friends yet</p>}
@@ -374,6 +380,7 @@ export default function Chat() {
                         <p className="text-xs text-gray-500">Friend</p>
                       </div>
                       
+                      {/* USAGE OF handleRemoveFriend: */}
                       <button 
                         onClick={(e) => { e.stopPropagation(); handleRemoveFriend(friend.id, friend.username); }}
                         className="absolute right-2 p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
@@ -386,6 +393,7 @@ export default function Chat() {
                 </>
               )}
 
+              {/* --- CHATS LIST --- */}
               {activeTab === 'chats' && (
                 <>
                   {conversations.length === 0 && <p className="text-center text-gray-400 text-sm mt-10">No recent chats</p>}
@@ -421,6 +429,7 @@ export default function Chat() {
                           </p>
                         </div>
 
+                        {/* USAGE OF handleRemoveConversation: */}
                         <button 
                             onClick={(e) => { e.stopPropagation(); handleRemoveConversation(conv.id); }}
                             className="absolute right-2 p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
@@ -454,7 +463,7 @@ export default function Chat() {
           </div>
         )}
       </div>
-
+      
       {isReportModalOpen && activeChat && (
         <ReportModal 
             target={{ id: activeChat.id, name: activeChat.username }}
@@ -467,7 +476,7 @@ export default function Chat() {
   );
 }
 
-// --- SUB-COMPONENT: CHAT WINDOW ---
+// --- FULL CHAT WINDOW SUB-COMPONENT ---
 function FullPageChatWindow({ activeChat, currentUser, onReport }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState(activeChat.initialMessage || '');
@@ -527,13 +536,21 @@ function FullPageChatWindow({ activeChat, currentUser, onReport }) {
 
       // --- ACCEPT LOGIC (Updates Inventory) ---
       if (action === 'accept') {
+          // 1. Check if we have cropId
           if (!msg.cropId) {
               Swal.fire('Error', 'Missing crop details in offer.', 'error');
               return;
           }
 
+          // 2. Fetch Crop to check stock
+          const cropRef = doc(db, "crops", msg.cropId);
+          const cropSnap = await getDoc(cropRef);
+          
+          // NOTE: If using MongoDB API, replace this block with API fetch. 
+          // Assuming you want the consistent MongoDB logic requested earlier:
+          
           try {
-              // 1. FETCH CURRENT STOCK FROM MONGODB API
+              // A. FETCH CURRENT STOCK FROM MONGODB API
               const res = await fetch(`${API_URL}/api/crops/${msg.cropId}`);
               if (!res.ok) throw new Error("Crop not found in database");
               const cropData = await res.json();
@@ -545,11 +562,11 @@ function FullPageChatWindow({ activeChat, currentUser, onReport }) {
                   return Swal.fire('Stock Error', 'Not enough stock available.', 'error');
               }
 
-              // 2. CALCULATE NEW STOCK
+              // B. CALCULATE NEW STOCK
               const newStock = currentStock - buyQty;
               const newStatus = newStock <= 0 ? 'sold_out' : cropData.status;
 
-              // 3. UPDATE MONGODB
+              // C. UPDATE MONGODB
               const updateRes = await fetch(`${API_URL}/api/crops/${msg.cropId}`, {
                   method: 'PUT',
                   headers: { 'Content-Type': 'application/json' },
@@ -558,7 +575,9 @@ function FullPageChatWindow({ activeChat, currentUser, onReport }) {
 
               if (!updateRes.ok) throw new Error("Failed to update stock");
 
-              // 4. UPDATE FIREBASE CHAT & TRANSACTIONS
+              // D. UPDATE FIREBASE CHAT & TRANSACTIONS
+              
+              // Create Transaction Record
               const transactionRef = doc(collection(db, "transactions"));
               batch.set(transactionRef, {
                   buyerId: currentUser.id === msg.senderId ? activeChat.id : msg.senderId,
@@ -572,8 +591,10 @@ function FullPageChatWindow({ activeChat, currentUser, onReport }) {
                   type: 'Order'
               });
 
+              // Mark Message as Accepted
               batch.update(doc(db, `chats/${chatId}/messages`, msg.id), { offerStatus: 'accepted' });
 
+              // Send System Message
               const sysMsgRef = doc(collection(db, `chats/${chatId}/messages`));
               batch.set(sysMsgRef, {
                   text: `✅ Offer Accepted! Deal sealed at ₱${msg.offerAmount}.`,
@@ -603,11 +624,12 @@ function FullPageChatWindow({ activeChat, currentUser, onReport }) {
       }
   };
 
-  // --- UPDATED TRANSACTION HANDLER (WITH INVENTORY DEDUCTION & FIX FOR WINNER NOTIFICATION) ---
+  // --- ERROR FIX 5: This is used in the Transaction Card (Legacy/Cart) messages ---
   const handleTransactionAction = async (msgId, transactionId, action) => {
     try {
         const batch = writeBatch(db); 
 
+        // 1. Get Transaction Details
         const transactionRef = doc(db, "transactions", transactionId);
         const transactionSnap = await getDoc(transactionRef);
         
@@ -621,14 +643,17 @@ function FullPageChatWindow({ activeChat, currentUser, onReport }) {
         const buyQty = Number(tData.quantity_kg) || 0; 
         const winningBuyerId = tData.buyerId; 
 
+        // --- IF SELLER ACCEPTS ---
         if (action === 'accept') {
-            // A. FETCH STOCK FROM MONGODB API
+            
+            // A. FETCH STOCK FROM MONGODB API (Consistency)
             const res = await fetch(`${API_URL}/api/crops/${cropId}`);
             if (!res.ok) throw new Error("Crop not found");
             const cropData = await res.json();
             
             const currentStock = Number(cropData.quantity_kg);
 
+            // Validation
             if (cropData.status === 'sold_out' || currentStock < buyQty) {
                 Swal.fire('Stock Error', `Only ${currentStock}kg available. Cannot sell ${buyQty}kg.`, 'error');
                 return; 
@@ -646,10 +671,14 @@ function FullPageChatWindow({ activeChat, currentUser, onReport }) {
             });
             if (!updateRes.ok) throw new Error("Failed to update stock");
 
-            // D. Update Transaction & Chat
+            // D. Update Transaction Status
             batch.update(transactionRef, { status: 'accepted' });
-            batch.update(doc(db, `chats/${chatId}/messages`, msgId), { offerStatus: 'accepted' });
+            
+            // E. Update Chat Message UI
+            const msgRef = doc(db, `chats/${chatId}/messages`, msgId);
+            batch.update(msgRef, { offerStatus: 'accepted' });
 
+            // F. Send Success Message to WINNER
             const winMsgRef = doc(collection(db, `chats/${chatId}/messages`));
             batch.set(winMsgRef, {
                 text: `✅ Offer Accepted for ${buyQty}kg! \n(Stock updated: ${newStock}kg remaining)`,
@@ -660,6 +689,7 @@ function FullPageChatWindow({ activeChat, currentUser, onReport }) {
             });
 
             // G. Notify LOSERS
+            // (Keeping this fetch simplified for Firestore transactions query)
             const otherOffersQuery = query(
                 collection(db, "transactions"),
                 where("cropId", "==", cropId),
@@ -681,6 +711,7 @@ function FullPageChatWindow({ activeChat, currentUser, onReport }) {
 
                 const loserChatId = [currentUser.id, loserId].sort().join("_");
                 
+                // We do this outside batch for simplicity with async addDoc to different collections
                 await addDoc(collection(db, `chats/${loserChatId}/messages`), {
                     text: `❌ AUTOMATED MESSAGE: The item "${tData.cropTitle}" has been sold to another buyer.`,
                     senderId: currentUser.id, 
@@ -689,6 +720,7 @@ function FullPageChatWindow({ activeChat, currentUser, onReport }) {
                     isSystemMessage: true
                 });
                 
+                // Mark loser transaction as rejected in DB (independent update)
                 updateDoc(doc(db, "transactions", offerDoc.id), { status: 'rejected' });
             });
 
@@ -701,8 +733,10 @@ function FullPageChatWindow({ activeChat, currentUser, onReport }) {
             });
 
         } else {
+            // --- IF SELLER REJECTS ---
             batch.update(transactionRef, { status: 'rejected' });
-            batch.update(doc(db, `chats/${chatId}/messages`, msgId), { offerStatus: 'rejected' });
+            const msgRef = doc(db, `chats/${chatId}/messages`, msgId);
+            batch.update(msgRef, { offerStatus: 'rejected' });
             
             const rejMsgRef = doc(collection(db, `chats/${chatId}/messages`));
             batch.set(rejMsgRef, {
@@ -875,6 +909,7 @@ function FullPageChatWindow({ activeChat, currentUser, onReport }) {
                         <span className="font-bold text-sm text-gray-800">Offer Sent</span>
                     </div>
                     <p className="text-sm text-gray-700 mb-3 whitespace-pre-wrap">{msg.text}</p>
+                    {/* USAGE OF handleTransactionAction: */}
                     {!isMe && !msg.offerStatus && (
                         <div className="flex gap-2">
                             <button onClick={() => handleTransactionAction(msg.id, msg.transactionId, 'accept')} className="flex-1 bg-saka-green text-white py-1.5 px-3 rounded-lg text-xs font-bold hover:bg-saka-dark transition">Accept</button>
