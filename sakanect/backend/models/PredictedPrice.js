@@ -30,6 +30,8 @@ const PredictedPriceSchema = new mongoose.Schema({
     type: Date,
     default: Date.now
   }
+}, { 
+  collection: 'predictedprices' // <--- THIS IS THE FIX
 });
 
 module.exports = mongoose.model('PredictedPrice', PredictedPriceSchema);

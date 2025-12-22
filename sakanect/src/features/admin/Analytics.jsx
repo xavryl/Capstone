@@ -7,6 +7,9 @@ import {
 } from 'recharts';
 import { Loader2, Users, ShoppingBag, Sprout, TrendingUp } from 'lucide-react';
 
+// --- API CONFIGURATION ---
+const API_URL = "https://capstone-0h24.onrender.com";
+
 export default function Analytics() {
   const [loading, setLoading] = useState(true);
   
@@ -33,9 +36,14 @@ export default function Analytics() {
         const txSnap = await getDocs(collection(db, "transactions"));
         const transactions = txSnap.docs.map(d => d.data());
 
-        // 3. Fetch Crops (MongoDB API)
-        const cropRes = await fetch('http://localhost:5000/api/crops');
-        const crops = await cropRes.json();
+        // 3. Fetch Crops (MongoDB API - FIXED URL)
+        const cropRes = await fetch(`${API_URL}/api/crops`);
+        let crops = [];
+        if (cropRes.ok) {
+            crops = await cropRes.json();
+        } else {
+            console.error("Failed to fetch crops for analytics");
+        }
 
         // --- PROCESS DATA ---
 
@@ -50,22 +58,21 @@ export default function Analytics() {
         });
 
         // B. Pie Chart: User Roles
-        const farmers = users.filter(u => u.role === 'Member').length; // Assuming 'Member' is default
+        const farmers = users.filter(u => u.role === 'Member').length; 
         const admins = users.filter(u => u.role === 'admin').length;
         
         setRoleData([
-          { name: 'Members (Farmers/Buyers)', value: farmers },
+          { name: 'Members', value: farmers },
           { name: 'Admins', value: admins }
         ]);
 
-        // C. Bar Chart: Top 5 Crop Categories (or Types)
+        // C. Bar Chart: Top 5 Crop Categories
         const typeCounts = {};
         crops.forEach(c => {
-          const type = c.title || "Unknown"; // Grouping by Crop Name
+          const type = c.title || "Unknown"; 
           typeCounts[type] = (typeCounts[type] || 0) + 1;
         });
 
-        // Convert to array and sort top 5
         const sortedCrops = Object.keys(typeCounts)
           .map(key => ({ name: key, count: typeCounts[key] }))
           .sort((a, b) => b.count - a.count)
@@ -107,7 +114,7 @@ export default function Analytics() {
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={cropData}>
                 <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="name" />
+                <XAxis dataKey="name" tick={{fontSize: 12}} interval={0} />
                 <YAxis allowDecimals={false} />
                 <Tooltip />
                 <Bar dataKey="count" fill="#2ecc71" radius={[4, 4, 0, 0]} />

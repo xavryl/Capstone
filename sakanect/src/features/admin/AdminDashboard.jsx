@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react';
 import { db, auth } from '../../config/firebase';
-import { collection, getDocs, deleteDoc, doc, updateDoc, addDoc, serverTimestamp, setDoc, getDoc, query, where } from 'firebase/firestore';
+import { collection, getDocs, deleteDoc, doc, updateDoc, addDoc, serverTimestamp, setDoc, getDoc } from 'firebase/firestore';
 import { useNavigate } from 'react-router-dom';
-import { API_URL } from '../../config/api'; 
 import { 
   Trash2, ShieldAlert, User, Sprout, Loader2, AlertTriangle, 
   TrendingUp, TrendingDown, Minus, BarChart3, MessageCircle, Gavel, Eye,
@@ -14,6 +13,10 @@ import {
 
 // --- SWEETALERT IMPORT ---
 import Swal from 'sweetalert2';
+
+// --- API CONFIGURATION ---
+// Ensuring we hit the live Render backend
+const API_URL = "https://capstone-0h24.onrender.com";
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
@@ -43,10 +46,15 @@ export default function AdminDashboard() {
 
   const [loading, setLoading] = useState(true);
 
+  // --- FETCH DATA ---
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true);
       try {
+        console.log("🚀 DASHBOARD: Starting Data Fetch...");
+        console.log("Target API:", API_URL);
+
+        // 1. Fetch Firebase Data
         const [userSnap, complaintSnap, ticketSnap] = await Promise.all([
           getDocs(collection(db, "users")),
           getDocs(collection(db, "complaints")),
@@ -57,26 +65,44 @@ export default function AdminDashboard() {
         setComplaints(complaintSnap.docs.map(d => ({ id: d.id, ...d.data() })));
         setTickets(ticketSnap.docs.map(d => ({ id: d.id, ...d.data() }))); 
 
-        const cropsResponse = await fetch(`${API_URL}/api/crops`);
-        if (cropsResponse.ok) {
-            const cropsData = await cropsResponse.json();
-            // Map _id to id so we can find it easily later
-            setCrops(cropsData.map(c => ({ ...c, id: c._id }))); 
-        }
+        // 2. Fetch Crops (MongoDB - Render)
+        try {
+            const cropsResponse = await fetch(`${API_URL}/api/crops`);
+            if (cropsResponse.ok) {
+                const cropsData = await cropsResponse.json();
+                setCrops(cropsData.map(c => ({ ...c, id: c._id }))); 
+            } else {
+                console.error("❌ Crops API Error:", cropsResponse.status);
+            }
+        } catch (e) { console.error("❌ Crops Network Error:", e); }
 
-        const aiResponse = await fetch('http://localhost:5000/api/predictedPrices/latest');
-        if (aiResponse.ok) {
-          const data = await aiResponse.json();
-          setPredictions(data);
-          
-          const up = data.filter(i => i.trend === 'UP').length;
-          const down = data.filter(i => i.trend === 'DOWN').length;
-          const stable = data.filter(i => i.trend === 'STABLE').length;
-          setMarketStats({ up, down, stable });
-        }
+        // 3. Fetch AI Predictions (MongoDB - Render)
+        try {
+            // This endpoint now uses MongoDB Aggregation to find the newest data per crop
+            const aiUrl = `${API_URL}/api/predictedPrices/latest`; 
+            console.log(`Fetching AI Data from: ${aiUrl}`);
+            
+            const aiResponse = await fetch(aiUrl);
+            
+            if (aiResponse.ok) {
+                const data = await aiResponse.json();
+                console.log("✅ AI Data Received:", data); 
+                
+                const safeData = Array.isArray(data) ? data : [];
+                setPredictions(safeData);
+                
+                // Calculate Stats
+                const up = safeData.filter(i => i.trend === 'UP').length;
+                const down = safeData.filter(i => i.trend === 'DOWN').length;
+                const stable = safeData.filter(i => i.trend === 'STABLE').length;
+                setMarketStats({ up, down, stable });
+            } else {
+                console.error(`❌ AI Fetch Failed. Status: ${aiResponse.status} (${aiResponse.statusText})`);
+            }
+        } catch (e) { console.error("❌ AI Network Error:", e); }
 
       } catch (error) {
-        console.error("Dashboard fetch error:", error);
+        console.error("🔥 Critical Dashboard Error:", error);
       } finally {
         setLoading(false);
       }
@@ -193,12 +219,12 @@ export default function AdminDashboard() {
     try {
       const adminId = auth.currentUser?.uid; 
       if (!adminId) { 
-          Swal.fire('Error', 'Admin not authenticated.', 'error');
-          setIsSending(false);
-          return; 
+        Swal.fire('Error', 'Admin not authenticated.', 'error');
+        setIsSending(false);
+        return; 
       }
 
-      // --- 1. FETCH LATEST USER DETAILS (Double Check) ---
+      // 1. Fetch User Details
       let finalTargetName = modal.targetName || "User";
       let finalTargetPhoto = null;
       let finalTargetEmail = "";
@@ -217,19 +243,15 @@ export default function AdminDashboard() {
 
       // 2. Construct Message
       let finalMessage = "";
-      let isReportMsg = false; 
-
       if (modal.type === 'reply') {
           finalMessage = `REFERENCE: ${modal.contextHeader}\n"${modal.contextBody}"\n\n💬 ADMIN REPLY:\n${messageInput}`;
       } else {
           finalMessage = `${modal.contextHeader}\nReason: ${modal.contextBody}\n\n📢 ADMIN MESSAGE:\n${messageInput}`;
-          isReportMsg = true;
       }
 
       // 3. Generate Chat ID
       const chatId = [adminId, modal.targetId].sort().join("_");
 
-      // 4. Send Message (Subcollection)
       await addDoc(collection(db, `chats/${chatId}/messages`), {
         text: finalMessage,
         senderId: adminId,
@@ -239,38 +261,26 @@ export default function AdminDashboard() {
         isTicketReply: modal.type === 'reply'  
       });
 
-      // 5. Update Conversation Metadata
+      // 4. Update Conversation Metadata
       let adminData = { username: "Admin", email: "admin@sakanect.com" };
       try {
           const adminDoc = await getDoc(doc(db, "users", adminId));
           if(adminDoc.exists()) adminData = adminDoc.data();
       } catch(err) { console.log("Admin fetch warning", err); }
 
-      const conversationData = {
+      await setDoc(doc(db, "conversations", chatId), {
         participants: [adminId, modal.targetId], 
         lastMessage: finalMessage, 
         lastSenderId: adminId,
         lastMessageTime: serverTimestamp(),
         users: { 
-          [adminId]: { 
-              name: adminData.name || "Admin", 
-              username: "Admin", 
-              email: adminData.email, 
-              photoURL: adminData.photoURL || null 
-          }, 
-          [modal.targetId]: { 
-              name: finalTargetName, 
-              username: finalTargetName, 
-              email: finalTargetEmail, 
-              photoURL: finalTargetPhoto 
-          } 
+          [adminId]: { name: adminData.name || "Admin", username: "Admin", email: adminData.email, photoURL: adminData.photoURL || null }, 
+          [modal.targetId]: { name: finalTargetName, username: finalTargetName, email: finalTargetEmail, photoURL: finalTargetPhoto } 
         },
         unreadBy: [modal.targetId] 
-      };
+      }, { merge: true });
 
-      await setDoc(doc(db, "conversations", chatId), conversationData, { merge: true });
-
-      // 6. Send Notification
+      // 5. Send Notification
       if (modal.type === 'warn') {
         await addDoc(collection(db, "notifications"), {
             user_id: modal.targetId,
@@ -283,7 +293,6 @@ export default function AdminDashboard() {
 
       setModal({ ...modal, isOpen: false });
       
-      // 7. SHOW SUCCESS & NAVIGATE
       Swal.fire({
           icon: 'success',
           title: 'Message Sent',
@@ -292,16 +301,13 @@ export default function AdminDashboard() {
           showConfirmButton: false
       }).then(() => {
           navigate('/chat', { 
-            state: { 
-              sellerId: modal.targetId, 
-              sellerName: finalTargetName 
-            } 
+            state: { sellerId: modal.targetId, sellerName: finalTargetName } 
           });
       });
 
     } catch (error) {
       console.error("Error sending message:", error);
-      Swal.fire('Error', 'Failed to send message. Check console.', 'error');
+      Swal.fire('Error', 'Failed to send message.', 'error');
     } finally {
       setIsSending(false);
     }
@@ -352,15 +358,8 @@ export default function AdminDashboard() {
                 placeholder={modal.type === 'warn' ? "Type warning message here..." : "Type your reply here..."}
                 value={messageInput}
                 onChange={(e) => setMessageInput(e.target.value)}
-                onKeyDown={(e) => {
-                    if(e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault(); 
-                        handleSubmitModal(e);
-                    }
-                }}
                 autoFocus
               ></textarea>
-              <p className="text-xs text-gray-400 mt-1 text-right">Press Enter to send</p>
               
               <div className="flex justify-end gap-2 mt-4">
                 <button type="button" onClick={() => setModal({...modal, isOpen: false})} className="px-4 py-2 text-gray-500 hover:bg-gray-100 rounded-lg font-medium">Cancel</button>
@@ -397,7 +396,7 @@ export default function AdminDashboard() {
                     </tr>
                   </thead>
                   <tbody className="text-sm divide-y">
-                    {predictions.map((item, idx) => (
+                    {predictions.length > 0 ? predictions.map((item, idx) => (
                       <tr key={idx} className="hover:bg-gray-50">
                         <td className="p-3 font-medium">{item.crop}</td>
                         <td className="p-3">₱{item.current_price}</td>
@@ -405,7 +404,9 @@ export default function AdminDashboard() {
                         <td className="p-3"><span className={`px-2 py-1 rounded-full text-xs font-bold ${item.trend === 'UP' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>{item.trend}</span></td>
                         <td className="p-3 text-xs text-gray-500 truncate max-w-[150px]" title={item.reason}>{item.reason}</td>
                       </tr>
-                    ))}
+                    )) : (
+                        <tr><td colSpan="5" className="p-6 text-center text-gray-400 italic">No market data available yet. Ensure database has data.</td></tr>
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -413,16 +414,20 @@ export default function AdminDashboard() {
             <div className="bg-white p-6 rounded-xl shadow-sm border flex flex-col">
               <h3 className="text-lg font-bold text-gray-800 mb-4">📊 Top Movers</h3>
               <div className="flex-1 min-h-[250px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={predictions.slice(0, 5)}>
-                    <XAxis dataKey="crop" tick={{fontSize: 10}} interval={0} />
-                    <YAxis />
-                    <Tooltip />
-                    <Bar dataKey="predicted_price" radius={[4, 4, 0, 0]}>
-                      {predictions.slice(0, 5).map((entry, index) => (<Cell key={`cell-${index}`} fill={entry.trend === 'UP' ? '#ef4444' : '#10b981'} />))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
+                {predictions.length > 0 ? (
+                    <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={predictions.slice(0, 5)}>
+                        <XAxis dataKey="crop" tick={{fontSize: 10}} interval={0} />
+                        <YAxis />
+                        <Tooltip />
+                        <Bar dataKey="predicted_price" radius={[4, 4, 0, 0]}>
+                        {predictions.slice(0, 5).map((entry, index) => (<Cell key={`cell-${index}`} fill={entry.trend === 'UP' ? '#ef4444' : '#10b981'} />))}
+                        </Bar>
+                    </BarChart>
+                    </ResponsiveContainer>
+                ) : (
+                    <div className="h-full flex items-center justify-center text-gray-400 italic">No chart data</div>
+                )}
               </div>
             </div>
           </div>
@@ -543,7 +548,6 @@ function CropTable({ crops, handleDeleteCrop }) {
     );
 }
 
-// --- UPDATED SMART COMPLAINT TABLE: ROBUST SEARCH ---
 function ComplaintTable({ complaints, users, crops, setComplaints, openWarnModal, handleBanUser, handleChatUser }) {
     const handleDismiss = async (complaintId) => {
         const result = await Swal.fire({
@@ -564,9 +568,7 @@ function ComplaintTable({ complaints, users, crops, setComplaints, openWarnModal
         }
     };
 
-    // --- HELPER: RESOLVE TARGET ID TO REAL USER ---
     const resolveComplaintTarget = (complaint) => {
-        // 1. Direct User ID (Camel or Snake Case)
         const directUserId = complaint.accused_user_id || complaint.accusedUserId;
         if (directUserId) {
             const user = users.find(u => u.id === directUserId);
@@ -574,27 +576,19 @@ function ComplaintTable({ complaints, users, crops, setComplaints, openWarnModal
         }
 
         const targetId = complaint.targetId || complaint.target_id;
-        
-        // 2. Check if targetId is a known USER
         const userFound = users.find(u => u.id === targetId);
         if (userFound) {
             return { id: targetId, name: userFound.username || userFound.name };
         }
 
-        // 3. Check if targetId is a known CROP (and get the Seller)
         const cropFound = crops.find(c => c.id === targetId);
         if (cropFound) {
-            // Check multiple fields for seller ID
             const sellerId = cropFound.user_id || cropFound.userId || cropFound.sellerId;
-            
             if (sellerId) {
                 const sellerUser = users.find(u => u.id === sellerId);
-                const sellerName = sellerUser ? (sellerUser.username || sellerUser.name) : (cropFound.sellerName || "Unknown Seller");
-                return { id: sellerId, name: sellerName };
+                return { id: sellerId, name: sellerUser ? (sellerUser.username || sellerUser.name) : (cropFound.sellerName || "Unknown Seller") };
             }
         }
-
-        // 4. Fallback (e.g. crop deleted, user deleted)
         return { id: null, name: complaint.targetName || "Missing Target" };
     };
 

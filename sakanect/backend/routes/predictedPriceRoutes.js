@@ -2,19 +2,39 @@ const express = require('express');
 const router = express.Router();
 const PredictedPrice = require('../models/PredictedPrice'); 
 
-// GET: Fetch the latest predictions (For the Dashboard)
+// GET: Fetch the absolute latest prediction for EACH crop
 router.get('/latest', async (req, res) => {
   try {
-    // Get predictions from the last 24 hours only
-    const oneDayAgo = new Date();
-    oneDayAgo.setDate(oneDayAgo.getDate() - 1);
+    const latestPredictions = await PredictedPrice.aggregate([
+      // 1. Sort ALL documents by date (newest first)
+      { $sort: { timestamp: -1 } },
+      
+      // 2. Group by the 'crop' name (e.g., "Basmati Rice")
+      // This automatically grabs the first one it sees (which is the newest due to the sort)
+      {
+        $group: {
+          _id: "$crop", 
+          latestData: { $first: "$$ROOT" } 
+        }
+      },
+      
+      // 3. Clean up the result so it looks like a nice list of objects
+      { $replaceRoot: { newRoot: "$latestData" } },
+      
+      // 4. (Optional) Sort alphabetically A-Z
+      { $sort: { crop: 1 } }
+    ]);
 
-    const latestPredictions = await PredictedPrice.find({
-      timestamp: { $gte: oneDayAgo }
-    }).sort({ predicted_price: -1 });
+    // Debugging: Log what we found to the terminal
+    console.log(`✅ /latest found ${latestPredictions.length} predictions.`);
+
+    if (latestPredictions.length === 0) {
+      return res.json([]); 
+    }
 
     res.json(latestPredictions);
   } catch (error) {
+    console.error("❌ Error in /latest route:", error);
     res.status(500).json({ error: error.message });
   }
 });

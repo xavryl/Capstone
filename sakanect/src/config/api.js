@@ -5,3 +5,5 @@ const isLocal = window.location.hostname === 'localhost' || window.location.host
 export const API_URL = isLocal 
   ? 'http://localhost:5000' 
   : 'https://capstone-0h24.onrender.com';
+
+  
