@@ -107,7 +107,9 @@ export default function Navbar() {
           {/* Links */}
           <div className="hidden md:flex flex-col gap-2 w-full">
             <NavLink to="/" label={t.home} />
-            <NavLink to="/crops" label={t.marketplace} />
+            
+            {/* --- CHANGE MADE HERE: Replaced t.marketplace with "Listings" --- */}
+            <NavLink to="/crops" label="Listings" />
             
             {user && (
                 <>
