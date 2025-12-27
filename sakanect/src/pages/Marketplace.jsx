@@ -44,7 +44,7 @@ export default function Marketplace() {
         {/* --- HEADER --- */}
         <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
           <div>
-            <h1 className="text-3xl font-bold text-gray-800">Marketplace</h1>
+            <h1 className="text-3xl font-bold text-gray-800">Listing</h1>
             <p className="text-gray-500 text-sm">Find fresh produce near you</p>
           </div>
 
