@@ -667,7 +667,7 @@ export default function Home() {
                 <TrendingUp size={18} /> Analytics
               </button>
               <button onClick={() => setActiveTab('marketplace')} className={`flex items-center gap-2 px-6 py-2.5 rounded-lg font-bold transition-all ${activeTab === 'marketplace' ? 'bg-white text-green-800 shadow-md' : 'text-green-100 hover:bg-green-800/50'}`}>
-                <ShoppingBag size={18} /> Marketplace
+                <ShoppingBag size={18} /> Listing
               </button>
             </div>
           </div>
