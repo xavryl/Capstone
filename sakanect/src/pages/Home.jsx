@@ -325,10 +325,9 @@ export default function Home() {
 
   const searchContainerRef = useRef(null);
 
-  // --- CHANGED: Use Render Backend for AI Data & Crops ---
-  const API_REAL_DB = 'https://capstone-0h24.onrender.com/api/market-prices';
-  const API_MOCK_AI = 'https://capstone-0h24.onrender.com/api/predictedPrices/latest'; // <--- FIXED HERE
-  const API_CROPS   = 'https://capstone-0h24.onrender.com/api/crops'; // <--- FIXED HERE
+  const API_REAL_DB = 'http://localhost:5000/api/market-prices';
+  const API_MOCK_AI = 'https://688d806da459d5566b127728.mockapi.io/v1/PredictedPrices';
+  const API_CROPS   = 'http://localhost:5000/api/crops';
 
   // --- CLICK OUTSIDE HANDLER FOR DROPDOWN ---
   useEffect(() => {
@@ -748,7 +747,7 @@ export default function Home() {
               </div>
               <div className="h-[350px] w-full bg-gray-50/30 rounded-2xl border border-dashed border-gray-200 p-2">
                 {mainChartConfig.data.length > 0 ? (
-                  <div className="h-64 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
                     <AreaChart data={mainChartConfig.data} margin={{ top: 20, right: 20, left: 0, bottom: 0 }}>
                       <defs>
                         <linearGradient id="colorPrice" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#16a34a" stopOpacity={0.3}/><stop offset="95%" stopColor="#16a34a" stopOpacity={0}/></linearGradient>
@@ -761,7 +760,7 @@ export default function Home() {
                       <Area type="monotone" dataKey="realPrice" name="History" stroke="#16a34a" strokeWidth={3} fill="url(#colorPrice)" animationDuration={1500} connectNulls={true} />
                       <Area type="monotone" dataKey="predictedPrice" name="Forecast" stroke="#9CA3AF" strokeWidth={3} strokeDasharray="5 5" fill="url(#colorForecast)" animationDuration={1500} connectNulls={true} />
                     </AreaChart>
-                  </div>
+                  </ResponsiveContainer>
                 ) : (<div className="h-full flex flex-col items-center justify-center text-gray-400"><Filter size={48} className="mb-2 opacity-20" /><p>No history data found for <b>{chartCrop}</b>.</p></div>)}
               </div>
             </div>
