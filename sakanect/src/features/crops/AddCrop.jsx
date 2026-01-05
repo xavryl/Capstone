@@ -119,11 +119,23 @@ export default function AddCrop() {
     }
 
     // --- SWEETALERT: PRICE CHECK ---
-    if (formData.type !== 'Donation' && !formData.price_per_kg) {
+    if (formData.type !== 'Donation' && (!formData.price_per_kg || Number(formData.price_per_kg) <= 0)) {
       Swal.fire({
         icon: 'warning',
-        title: 'Price Missing',
-        text: 'Please set a price for your listing.',
+        title: 'Invalid Price',
+        text: 'Please enter a valid price greater than 0.',
+        confirmButtonColor: '#16a34a'
+      });
+      return;
+    }
+
+    // --- NEW CHECK: QUANTITY VALIDATION ---
+    const quantity = Number(formData.quantity_kg);
+    if (!quantity || quantity <= 0) {
+      Swal.fire({
+        icon: 'warning',
+        title: 'Invalid Quantity',
+        text: 'Please enter a quantity greater than 0 kg.',
         confirmButtonColor: '#16a34a'
       });
       return;
@@ -146,7 +158,7 @@ export default function AddCrop() {
         title: formData.title,
         type: formData.type,
         price_per_kg: Number(formData.price_per_kg) || 0,
-        quantity_kg: Number(formData.quantity_kg),
+        quantity_kg: quantity, // Using the validated quantity
         location: formData.location, 
         coordinates: { 
             type: 'Point',
@@ -241,6 +253,8 @@ export default function AddCrop() {
                                 type="number" 
                                 name="price_per_kg" 
                                 placeholder="0.00" 
+                                min="0.01"
+                                step="0.01"
                                 value={formData.price_per_kg} 
                                 className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-saka-green outline-none" 
                                 onChange={handleChange} 
@@ -250,7 +264,16 @@ export default function AddCrop() {
                     )}
                     <div className={formData.type === 'Donation' ? 'col-span-2' : ''}>
                         <label className="block text-gray-700 font-medium mb-2">Quantity (Kg)</label>
-                        <input type="number" name="quantity_kg" placeholder="Total kg" className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-saka-green outline-none" onChange={handleChange} required />
+                        <input 
+                            type="number" 
+                            name="quantity_kg" 
+                            placeholder="Total kg" 
+                            min="0.1"
+                            step="0.1"
+                            className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-saka-green outline-none" 
+                            onChange={handleChange} 
+                            required 
+                        />
                     </div>
                 </div>
             </div>
