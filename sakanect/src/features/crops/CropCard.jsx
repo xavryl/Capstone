@@ -138,7 +138,7 @@ export default function CropCard({ crop }) {
         await addDoc(collection(db, `chats/${chatId}/messages`), {
             text: messageText,
             senderId: user.id,
-            senderName: user.username || user.name,
+            senderName: user.username || user.name || "Unknown",
             createdAt: serverTimestamp(),
             isOffer: isOffer,
             cropTitle: crop.title,
@@ -148,14 +148,25 @@ export default function CropCard({ crop }) {
         });
 
         // --- 3. CREATE/UPDATE CONVERSATION HEADER ---
+        // CRITICAL FIX: Ensure no 'undefined' values are passed to setDoc
         await setDoc(doc(db, "conversations", chatId), {
             participants: [user.id, crop.sellerId],
             lastMessage: `Offer: ${crop.title}`,
             lastSenderId: user.id,
             lastMessageTime: serverTimestamp(),
             users: {
-                [user.id]: { name: user.name, email: user.email, username: user.username, photoURL: user.photoURL || null },
-                [crop.sellerId]: { name: crop.sellerName, email: "", username: crop.sellerName }
+                [user.id]: { 
+                    name: user.name || user.username || "Unknown", 
+                    email: user.email || "", 
+                    username: user.username || "Unknown", 
+                    photoURL: user.photoURL || null  // Forces null if undefined
+                },
+                [crop.sellerId]: { 
+                    name: crop.sellerName || "Unknown", 
+                    email: "", 
+                    username: crop.sellerName || "Unknown",
+                    photoURL: null // We don't have seller photo here, default to null
+                }
             },
             unreadBy: arrayUnion(crop.sellerId)
         }, { merge: true });
