@@ -105,7 +105,6 @@ export default function Requests() {
             timer: 1500,
             showConfirmButton: false
         }).then(() => {
-            // FIX: Pass requestorId as sellerId so Chat.jsx opens the right conversation
             navigate('/chat', { state: { sellerId: req.requestorId, sellerName: req.requestorName } });
         });
     }
@@ -134,6 +133,7 @@ export default function Requests() {
     }
   };
   
+  // --- REPORT HANDLER FIX ---
   const handleReportOpen = (e, request) => {
     e.stopPropagation(); 
     if (!user) {
@@ -149,7 +149,11 @@ export default function Requests() {
         });
         return;
     }
-    setSelectedReportTarget(request);
+    // Set the target as the USER (Requestor) not the Request itself
+    setSelectedReportTarget({
+        id: request.requestorId, 
+        name: request.requestorName 
+    });
     setIsReportModalOpen(true);
   };
   
@@ -250,7 +254,7 @@ export default function Requests() {
                         <button 
                             onClick={(e) => handleReportOpen(e, req)}
                             className="absolute top-3 right-3 p-1 text-gray-400 hover:text-red-500 transition z-10"
-                            title="Report this Request"
+                            title="Report this User"
                         >
                             <AlertTriangle size={16} />
                         </button>
@@ -302,10 +306,11 @@ export default function Requests() {
 
       {isModalOpen && <RequestFormModal onClose={closeModal} user={user} existingRequest={editingRequest} />}
       
+      {/* --- REPORT MODAL FIX --- */}
       {isReportModalOpen && selectedReportTarget && (
         <ReportModal 
-            target={{ id: selectedReportTarget.id, name: selectedReportTarget.cropName }}
-            targetType="Request"
+            target={selectedReportTarget} // Now contains {id: userId, name: userName}
+            targetType="User" // Explicitly tell modal this is a User report
             reporterId={user.id}
             onClose={handleReportClose}
         />
