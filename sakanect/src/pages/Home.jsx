@@ -325,9 +325,10 @@ export default function Home() {
 
   const searchContainerRef = useRef(null);
 
-  const API_REAL_DB = 'http://localhost:5000/api/market-prices';
-  const API_MOCK_AI = 'https://688d806da459d5566b127728.mockapi.io/v1/PredictedPrices';
-  const API_CROPS   = 'http://localhost:5000/api/crops';
+  // --- CHANGED: Use Render Backend for AI Data & Crops ---
+  const API_REAL_DB = 'https://capstone-0h24.onrender.com/api/market-prices';
+  const API_MOCK_AI = 'https://capstone-0h24.onrender.com/api/predictedPrices/latest'; // <--- FIXED HERE
+  const API_CROPS   = 'https://capstone-0h24.onrender.com/api/crops'; // <--- FIXED HERE
 
   // --- CLICK OUTSIDE HANDLER FOR DROPDOWN ---
   useEffect(() => {

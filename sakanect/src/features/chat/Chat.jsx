@@ -156,16 +156,30 @@ export default function Chat() {
     return () => unsub();
   }, [currentUser]);
 
-  useEffect(() => {
+ useEffect(() => {
     if (!currentUser) return;
-    const q = collection(db, "conversations"); 
+    
+    // CORRECT: Only ask for conversations where I am a participant
+    const q = query(
+      collection(db, "conversations"), 
+      where("participants", "array-contains", currentUser.id),
+      orderBy("lastMessageTime", "desc") // Optional: Requires an index
+    ); 
+
+    // Note: If you get a "Missing Index" error in console, remove the orderBy part temporarily
+    // const q = query(collection(db, "conversations"), where("participants", "array-contains", currentUser.id));
+
     const unsub = onSnapshot(q, (snap) => {
-      const data = snap.docs
-        .map(doc => ({ id: doc.id, ...doc.data() }))
-        .filter(chat => chat.participants && chat.participants.includes(currentUser.id))
-        .sort((a,b)=> (b.lastMessageTime?.seconds||0)-(a.lastMessageTime?.seconds||0));
+      const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      
+      // Sort manually in JS if you removed orderBy above
+      data.sort((a,b)=> (b.lastMessageTime?.seconds||0)-(a.lastMessageTime?.seconds||0));
+      
       setConversations(data);
+    }, (error) => {
+        console.error("Chat Error:", error);
     });
+    
     return () => unsub();
   }, [currentUser]);
 

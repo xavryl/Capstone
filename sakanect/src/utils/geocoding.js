@@ -1,21 +1,36 @@
-const NOMINATIM_BASE_URL = "https://nominatim.openstreetmap.org/search";
-const NOMINATIM_REVERSE_URL = "https://nominatim.openstreetmap.org/reverse";
+// src/utils/geocoding.js
 
-export const getCoordinates = async (locationName) => {
+// --- 1. GET COORDINATES (Forward Geocoding) ---
+export const getCoordinates = async (address) => {
   try {
-    const url = `${NOMINATIM_BASE_URL}?q=${encodeURIComponent(locationName)}&format=json&limit=1`;
-    const response = await fetch(url, {
-      headers: { "User-Agent": "SakaNect-Capstone-Project" } 
-    });
+    // FIX: Extract just the city name (everything before the first comma)
+    // Example: "Talisay, Cebu, Philippines" -> "Talisay"
+    const cityName = address.split(',')[0].trim();
+    
+    if (!cityName) return null;
+
+    const query = encodeURIComponent(cityName);
+    // We ask for 5 results so we can filter for the Philippines later
+    const url = `https://geocoding-api.open-meteo.com/v1/search?name=${query}&count=5&language=en&format=json`;
+
+    const response = await fetch(url);
+    if (!response.ok) throw new Error('Geocoding fetch failed');
+    
     const data = await response.json();
 
-    if (data && data.length > 0) {
+    if (data.results && data.results.length > 0) {
+      // SMART MATCH: Look for a result specifically in the Philippines
+      const phResult = data.results.find(place => 
+          place.country === "Philippines" || place.country_code === "PH"
+      ) || data.results[0]; // Fallback to first result if PH not found
+
       return {
-        lat: parseFloat(data[0].lat),
-        lon: parseFloat(data[0].lon),
-        displayName: data[0].display_name
+        lat: phResult.latitude,
+        lon: phResult.longitude,
+        display_name: `${phResult.name}, ${phResult.admin1 || phResult.country || 'Philippines'}`
       };
     }
+    
     return null;
   } catch (error) {
     console.error("Geocoding error:", error);
@@ -23,30 +38,33 @@ export const getCoordinates = async (locationName) => {
   }
 };
 
-// NEW: Convert Lat/Lon to Text Address
+// --- 2. GET ADDRESS FROM COORDS (Reverse Geocoding) ---
 export const reverseGeocode = async (lat, lon) => {
   try {
-    const url = `${NOMINATIM_REVERSE_URL}?lat=${lat}&lon=${lon}&format=json`;
-    const response = await fetch(url, {
-      headers: { "User-Agent": "SakaNect-Capstone-Project" }
-    });
+    const url = `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lon}&localityLanguage=en`;
+    
+    const response = await fetch(url);
+    if (!response.ok) throw new Error('Reverse geocoding fetch failed');
+
     const data = await response.json();
     
-    // Return a simplified address (City/Town + Province is usually best for privacy)
-    // We try to find the most relevant address part
-    const addr = data.address;
-    const city = addr.city || addr.town || addr.village || addr.municipality;
-    const state = addr.state || addr.region || addr.province;
+    const city = data.city || data.locality || data.town;
+    const province = data.principalSubdivision;
     
-    return city && state ? `${city}, ${state}` : data.display_name;
+    if (city && province) {
+        return `${city}, ${province}`;
+    }
+    return data.locality || "Unknown Location";
+
   } catch (error) {
     console.error("Reverse geocoding error:", error);
     return null;
   }
 };
 
+// --- 3. CALCULATE DISTANCE (Math) ---
 export const calculateDistance = (lat1, lon1, lat2, lon2) => {
-  const R = 6371; 
+  const R = 6371; // Radius of Earth in km
   const dLat = deg2rad(lat2 - lat1);
   const dLon = deg2rad(lon2 - lon1);
   const a =

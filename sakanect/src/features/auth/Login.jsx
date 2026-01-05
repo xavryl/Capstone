@@ -1,19 +1,20 @@
 import { useState } from 'react';
 import { User, Lock, Mail, Sprout, AtSign, ArrowRight, Loader2, MapPin, ArrowLeft, Phone, CheckCircle } from 'lucide-react';
 import { useNavigate, Link } from 'react-router-dom';
-import { useAuth } from '../../context/AuthContext';
-import { db, auth } from '../../config/firebase'; 
-import { collection, query, where, getDocs, serverTimestamp, setDoc, doc, getDoc } from 'firebase/firestore'; 
+import { auth, db } from '../../config/firebase'; 
+import { serverTimestamp, setDoc, doc } from 'firebase/firestore'; 
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword, sendEmailVerification, signOut, sendPasswordResetEmail } from 'firebase/auth'; 
 import { getCoordinates } from '../../utils/geocoding';
-import Swal from 'sweetalert2'; // Use SweetAlert2
+import Swal from 'sweetalert2'; 
 
 export default function Login() {
   const [isLogin, setIsLogin] = useState(true); 
   const [isReset, setIsReset] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
-  const { login } = useAuth();
+  
+  // NOTE: We do NOT need { login } from useAuth anymore.
+  // The AuthContext automatically detects when we run signInWithEmailAndPassword below.
   
   const [formData, setFormData] = useState({
     fullName: '',
@@ -21,7 +22,7 @@ export default function Login() {
     email: '',
     phone: '',
     password: '',
-    confirmPassword: '', // <--- NEW FIELD
+    confirmPassword: '',
     city: ''
   });
 
@@ -60,31 +61,18 @@ export default function Login() {
     }
   };
 
-  // --- SMART LOGIN LOGIC ---
+  // --- OPTIMIZED LOGIN LOGIC ---
   const handleLogin = async () => {
     try {
-      let loginEmail = formData.email; 
-
-      // 1. Check if input looks like a phone number
-      const isPhone = /^[0-9+]+$/.test(formData.email);
-
-      if (isPhone) {
-        const q = query(collection(db, "users"), where("phone", "==", formData.email));
-        const querySnapshot = await getDocs(q);
-
-        if (querySnapshot.empty) {
-          Swal.fire('Error', 'No account found with this phone number.', 'error');
-          setIsLoading(false);
-          return;
-        }
-        const userData = querySnapshot.docs[0].data();
-        loginEmail = userData.email;
-      }
-
-      // 2. Sign in
-      const userCredential = await signInWithEmailAndPassword(auth, loginEmail, formData.password);
+      // NOTE: "Phone Login" removed because standard Firestore Rules 
+      // block searching for phone numbers before logging in. 
+      // We strictly use Email/Password for stability.
+      
+      // 1. Sign in with Firebase Auth
+      const userCredential = await signInWithEmailAndPassword(auth, formData.email, formData.password);
       const firebaseUser = userCredential.user;
 
+      // 2. Email Verification Check
       if (!firebaseUser.emailVerified) {
         const result = await Swal.fire({
             title: 'Email Not Verified',
@@ -99,31 +87,28 @@ export default function Login() {
             await sendEmailVerification(firebaseUser);
             Swal.fire('Sent!', 'Check your inbox.', 'success');
         }
+        // Important: Sign them out if not verified so AuthContext doesn't let them in
         await signOut(auth);
         setIsLoading(false);
         return;
       }
 
-      const userDoc = await getDoc(doc(db, "users", firebaseUser.uid));
-      if (userDoc.exists()) {
-        const userData = userDoc.data();
-        login({ id: firebaseUser.uid, ...userData }); 
-        
-        Swal.fire({
-            icon: 'success',
-            title: `Welcome back, ${userData.username}!`,
-            timer: 1500,
-            showConfirmButton: false
-        });
-        navigate('/');
-      } else {
-        Swal.fire('Error', 'User profile not found in database.', 'error');
-      }
+      // 3. Success! 
+      // We don't need to fetch the profile manually here. 
+      // AuthContext will detect the login and fetch the profile automatically.
+      
+      Swal.fire({
+          icon: 'success',
+          title: `Welcome back!`,
+          timer: 1500,
+          showConfirmButton: false
+      });
+      navigate('/'); 
 
     } catch (error) {
       console.error("Login Error:", error);
       if (error.code === 'auth/invalid-credential') {
-        Swal.fire('Login Failed', 'Invalid credentials.', 'error');
+        Swal.fire('Login Failed', 'Invalid email or password.', 'error');
       } else {
         Swal.fire('Login Failed', error.message, 'error');
       }
@@ -142,14 +127,11 @@ export default function Login() {
           return;
       }
 
-      // 1. Check Duplicates
-      const userCheck = await getDocs(query(collection(db, "users"), where("username", "==", formData.username)));
-      if (!userCheck.empty) { Swal.fire('Error', 'Username taken.', 'error'); setIsLoading(false); return; }
-      
-      const phoneCheck = await getDocs(query(collection(db, "users"), where("phone", "==", formData.phone)));
-      if (!phoneCheck.empty) { Swal.fire('Error', 'Phone number already registered.', 'error'); setIsLoading(false); return; }
+      // NOTE: Duplicate checks (username/phone) removed.
+      // Trying to check these before creating the account causes "Permission Denied"
+      // because the user is not logged in yet.
 
-      // 2. Validate Location
+      // 1. Validate Location
       let locationData = { name: formData.city, lat: 0, lon: 0 };
       if (formData.city) {
         const coords = await getCoordinates(formData.city + ", Philippines");
@@ -161,13 +143,15 @@ export default function Login() {
         locationData = { name: formData.city, lat: coords.lat, lon: coords.lon };
       }
 
-      // 3. Create User
+      // 2. Create User in Auth (This logs them in automatically!)
       const userCredential = await createUserWithEmailAndPassword(auth, formData.email, formData.password);
       const firebaseUser = userCredential.user;
 
       await sendEmailVerification(firebaseUser);
 
-      // 4. Save Profile
+      // 3. Save Profile to Firestore
+      // This works now because the user is technically "logged in" after Step 2,
+      // so the Security Rule (auth.uid == userId) passes.
       const newUserProfile = {
         name: formData.fullName,
         username: formData.username,
@@ -189,6 +173,9 @@ export default function Login() {
         text: 'Please check your email to verify your account before logging in.',
         confirmButtonColor: '#16a34a'
       });
+
+      // Sign out immediately so they have to verify email first
+      await signOut(auth);
       setIsLogin(true); 
 
     } catch (error) {
@@ -203,6 +190,7 @@ export default function Login() {
     }
   };
 
+  // ... (JSX REMAINS EXACTLY THE SAME BELOW) ...
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4 py-10">
       <div className="bg-white w-full max-w-md p-8 rounded-2xl shadow-xl border border-gray-100">

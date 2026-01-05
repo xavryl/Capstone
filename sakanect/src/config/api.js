@@ -1,9 +1,9 @@
-// Check if we are running locally or on a public link
-const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+// src/config/api.js
 
-// If local, use localhost. If public (DevTunnel), use your specific Tunnel URL.
-export const API_URL = isLocal 
-  ? 'http://localhost:5000' 
-  : 'https://capstone-0h24.onrender.com';
+// HARDCODE RENDER for now so you can see the live data while developing locally
+export const API_URL = 'https://capstone-0h24.onrender.com';
 
-  
+/* Keep the old logic commented out for later:
+   const isLocal = window.location.hostname === 'localhost';
+   export const API_URL = isLocal ? 'http://localhost:5000' : 'https://capstone-0h24.onrender.com';
+*/

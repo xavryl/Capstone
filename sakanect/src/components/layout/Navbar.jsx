@@ -3,10 +3,10 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Sprout, MessageCircle, Bell, ChevronDown, Globe, Menu, User, LogIn } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { db } from '../../config/firebase';
-import { collection, onSnapshot, writeBatch, doc, updateDoc, arrayRemove } from 'firebase/firestore';
+import { collection, onSnapshot, writeBatch, doc, updateDoc, arrayRemove, query, where } from 'firebase/firestore'; 
 import { useLanguage } from '../../context/LanguageContext';
 
-// --- HELPER COMPONENT (Defined OUTSIDE the main component) ---
+// --- HELPER COMPONENT ---
 const NavLink = ({ to, label, className = "" }) => (
   <Link to={to} className={`block px-4 py-2.5 rounded-lg text-sm text-gray-600 hover:bg-green-50 hover:text-saka-green transition font-medium ${className}`}>
       {label}
@@ -22,37 +22,51 @@ export default function Navbar() {
   const [isNotifOpen, setIsNotifOpen] = useState(false);
   const notifRef = useRef(null);
 
-  // 1. Listen for Unread Messages
+  // 1. Listen for Unread Messages (Safer Implementation)
   useEffect(() => {
-    if (!user) return;
-    const q = collection(db, "conversations");
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const unreadList = [];
-      snapshot.docs.forEach(doc => {
-        const data = doc.data();
-        if (data.participants?.includes(user.id) && data.unreadBy?.includes(user.id)) {
-          const senderId = data.lastSenderId;
-          
-          // Prioritize Username, fallback to Name
-          const senderName = data.users?.[senderId]?.username || data.users?.[senderId]?.name || "Someone";
-          
-          unreadList.push({ 
-            id: doc.id, 
-            senderName, 
-            message: data.lastMessage, 
-            time: data.lastMessageTime 
-          });
-        }
-      });
-      // Sort by newest first
-      unreadList.sort((a, b) => (b.time?.seconds || 0) - (a.time?.seconds || 0));
-      setUnreadChats(unreadList);
-    });
-    return () => unsubscribe();
+    // Only listen if user is fully logged in and has an ID
+    if (!user || !user.id) {
+        // REMOVED: setUnreadChats([]); -> This caused the ESLint error. 
+        // The UI hides the bell when !user, so clearing state isn't strictly necessary here.
+        return; 
+    }
+
+    try {
+        const q = query(
+            collection(db, "conversations"), 
+            where("participants", "array-contains", user.id)
+        );
+
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const unreadList = [];
+            snapshot.docs.forEach(doc => {
+                const data = doc.data();
+                if (data.unreadBy && data.unreadBy.includes(user.id)) {
+                    const senderId = data.lastSenderId;
+                    const senderName = data.users?.[senderId]?.username || data.users?.[senderId]?.name || "Someone";
+                    
+                    unreadList.push({ 
+                        id: doc.id, 
+                        senderName, 
+                        message: data.lastMessage, 
+                        time: data.lastMessageTime 
+                    });
+                }
+            });
+            unreadList.sort((a, b) => (b.time?.seconds || 0) - (a.time?.seconds || 0));
+            setUnreadChats(unreadList);
+        }, (error) => {
+            console.log("Navbar Listener Error:", error.code);
+        });
+
+        return () => unsubscribe();
+    } catch (err) {
+        console.error("Setup Error:", err);
+    }
   }, [user]);
 
   const handleClearAll = async () => {
-    if (unreadChats.length === 0) return;
+    if (unreadChats.length === 0 || !user) return;
     try {
       const batch = writeBatch(db);
       unreadChats.forEach(chat => {
@@ -65,7 +79,9 @@ export default function Navbar() {
 
   const handleNotificationClick = async (chatId) => {
     try {
-      await updateDoc(doc(db, "conversations", chatId), { unreadBy: arrayRemove(user.id) });
+      if(user) {
+          await updateDoc(doc(db, "conversations", chatId), { unreadBy: arrayRemove(user.id) });
+      }
       setIsNotifOpen(false);
       navigate('/chat');
     } catch (error) { 
@@ -86,29 +102,23 @@ export default function Navbar() {
 
   const handleLogout = () => {
     logout();
+    setUnreadChats([]); // Clear messages on explicit logout
     navigate('/login');
   };
 
   return (
     <>
-      {/* --- 1. LEFT SIDEBAR (Navigation + Profile) --- */}
       <nav className="no-scrollbar overflow-y-auto sticky top-0 z-50 bg-white shadow-sm border-b md:border-b-0 md:border-r border-gray-100 w-full md:w-64 md:h-screen md:fixed md:left-0 transition-all duration-300 flex flex-col justify-between">
-        
-        {/* TOP SECTION: Logo & Links */}
         <div className="container mx-auto px-4 md:px-6 py-4 md:py-6 flex md:flex-col items-center md:items-start gap-6">
           
-          {/* Logo */}
           <Link to="/" className="text-2xl font-bold text-saka-green flex items-center gap-2 hover:opacity-80 transition">
             <Sprout size={28}/> 
             <span className="hidden md:inline">SakaNect</span>
             <span className="md:hidden">SakaNect</span>
           </Link>
 
-          {/* Links */}
           <div className="hidden md:flex flex-col gap-2 w-full">
             <NavLink to="/" label={t.home} />
-            
-            {/* --- CHANGE MADE HERE: Replaced t.marketplace with "Listings" --- */}
             <NavLink to="/crops" label="Listings" />
             
             {user && (
@@ -126,7 +136,6 @@ export default function Navbar() {
           </div>
         </div>
 
-        {/* BOTTOM SECTION: Profile OR Login Button */}
         <div className="hidden md:flex flex-col w-full p-4 border-t border-gray-100 bg-gray-50 mt-auto">
             {user ? (
                 <>
@@ -156,7 +165,6 @@ export default function Navbar() {
                     </div>
                 </>
             ) : (
-                // --- LOGIN BUTTON FOR GUESTS ---
                 <Link to="/login" className="flex items-center justify-center gap-2 w-full bg-saka-green text-white font-bold py-2.5 rounded-lg hover:bg-saka-dark transition shadow-sm">
                     <LogIn size={18} />
                     Login / Sign Up
@@ -165,10 +173,7 @@ export default function Navbar() {
         </div>
       </nav>
 
-      {/* --- 2. TOP RIGHT HEADER (Notifications, Chat & Language) --- */}
       <div className="fixed top-4 right-6 z-50 flex items-center gap-3">
-        
-        {/* LANGUAGE DROPDOWN (Visible to Everyone) */}
         <div className="bg-white p-1 pr-2 rounded-full shadow-md border border-gray-100 flex items-center hover:bg-gray-50 transition">
                 <div className="p-1.5 bg-gray-100 rounded-full mr-1">
                 <Globe size={14} className="text-gray-600"/>
@@ -187,10 +192,8 @@ export default function Navbar() {
                 </div>
         </div>
 
-        {/* ICONS (Only for Logged In Users) */}
         {user ? (
             <>
-                {/* Notification Bell */}
                 <div className="relative" ref={notifRef}>
                     <button 
                     onClick={() => setIsNotifOpen(!isNotifOpen)}
@@ -202,7 +205,6 @@ export default function Navbar() {
                     )}
                     </button>
 
-                    {/* Dropdown */}
                     {isNotifOpen && (
                     <div className="absolute right-0 mt-3 w-80 bg-white rounded-xl shadow-2xl border border-gray-100 overflow-hidden z-50 animate-in fade-in zoom-in duration-200 origin-top-right">
                         <div className="p-3 border-b bg-gray-50 flex justify-between items-center">
@@ -216,7 +218,6 @@ export default function Navbar() {
                             unreadChats.map(c => (
                                 <div key={c.id} onClick={() => handleNotificationClick(c.id)} className="p-3 border-b hover:bg-green-50 cursor-pointer transition">
                                         <div className="flex justify-between mb-1">
-                                            {/* Shows Username First */}
                                             <span className="font-bold text-sm text-gray-800">{c.senderName}</span>
                                             <span className="text-[10px] text-gray-400">New</span>
                                         </div>
@@ -229,7 +230,6 @@ export default function Navbar() {
                     )}
                 </div>
 
-                {/* Chat Icon (Quick Link) */}
                 <Link 
                     to="/chat" 
                     className="w-10 h-10 bg-white hover:bg-gray-50 rounded-full shadow-md border border-gray-100 flex items-center justify-center text-gray-600 transition relative"
@@ -242,7 +242,6 @@ export default function Navbar() {
                 </Link>
             </>
         ) : (
-            // --- MOBILE LOGIN BUTTON (Top Right) ---
             <Link to="/login" className="md:hidden w-10 h-10 bg-saka-green text-white rounded-full shadow-md flex items-center justify-center hover:bg-saka-dark transition">
                 <LogIn size={20} />
             </Link>
