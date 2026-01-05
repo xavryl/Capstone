@@ -223,7 +223,7 @@ export default function Crops() {
             return { offerPrice: price, offerQty: qty };
         }
     });
-
+    
     if (formValues) {
         const { offerPrice, offerQty } = formValues;
 

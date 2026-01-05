@@ -4,10 +4,8 @@ import { collection, addDoc, query, where, orderBy, onSnapshot, serverTimestamp,
 import { useAuth } from '../../context/AuthContext';
 import { useChat } from '../../context/ChatContext'; 
 import { useNavigate } from 'react-router-dom';
-import { Plus, MessageCircle, TrendingUp, User, X, Loader2, AlertTriangle, Edit, Trash2, CheckCircle, Send } from 'lucide-react';
+import { Plus, MessageCircle, TrendingUp, User, X, Loader2, AlertTriangle, Edit, Trash2, CheckCircle } from 'lucide-react';
 import ReportModal from '../complaints/ReportModal';
-
-// --- SWEETALERT IMPORT ---
 import Swal from 'sweetalert2';
 
 export default function Requests() {
@@ -32,10 +30,8 @@ export default function Requests() {
     let q;
 
     if (activeTab === 'mine' && user) {
-        // My Requests
         q = query(collectionRef, where("requestorId", "==", user.id), orderBy("createdAt", "desc"));
     } else {
-        // Market Requests
         q = query(collectionRef, where("status", "==", "open"), orderBy("createdAt", "desc"));
     }
 
@@ -50,7 +46,6 @@ export default function Requests() {
 
   // 2. HANDLERS
   
-  // --- UPDATED FULFILL HANDLER WITH CUSTOM MESSAGE MODAL ---
   const handleFulfill = async (req) => {
     if (!user) {
         Swal.fire({
@@ -67,11 +62,9 @@ export default function Requests() {
     }
     if (req.requestorId === user.id) return; 
 
-    // Define Default Values
     const defaultSubject = `Supply Offer: ${req.quantity}kg of ${req.cropName}`;
     const defaultMessage = `Hi, I saw your request for ${req.quantity}kg of ${req.cropName}. I can supply this!`;
 
-    // --- CUSTOM INPUT MODAL ---
     const { value: formValues } = await Swal.fire({
         title: 'Send Offer Message',
         html: `
@@ -101,14 +94,23 @@ export default function Requests() {
             email: "" 
         };
         
-        // Combine subject and message for clarity in chat
         const finalMsg = `**${defaultSubject}**\n\n${formValues}`;
         
-        startChat(buyer, finalMsg);
+        await startChat(buyer, finalMsg);
+
+        Swal.fire({
+            icon: 'success',
+            title: 'Message Sent!',
+            text: 'Redirecting to chat...',
+            timer: 1500,
+            showConfirmButton: false
+        }).then(() => {
+            // FIX: Pass requestorId as sellerId so Chat.jsx opens the right conversation
+            navigate('/chat', { state: { sellerId: req.requestorId, sellerName: req.requestorName } });
+        });
     }
   };
 
-  // --- MARK AS FULFILLED ---
   const handleMarkFulfilled = async (reqId) => {
     const result = await Swal.fire({
         title: 'Mark as Fulfilled?',
@@ -158,7 +160,6 @@ export default function Requests() {
 
   const handleDelete = async (e, reqId) => {
     e.stopPropagation();
-    
     const result = await Swal.fire({
         title: 'Delete Request?',
         text: "You won't be able to revert this!",
@@ -193,14 +194,11 @@ export default function Requests() {
 
   return (
     <div className="container mx-auto p-6 max-w-5xl">
-      
-      {/* HEADER */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
         <div>
           <h1 className="text-3xl font-bold text-gray-800">Crop Demand</h1>
           <p className="text-gray-500 text-sm mt-1">See what buyers are looking for right now.</p>
         </div>
-        
         <button 
           onClick={() => { setEditingRequest(null); setIsModalOpen(true); }}
           className="bg-saka-green text-white px-6 py-3 rounded-lg font-bold hover:bg-saka-dark transition shadow-lg flex items-center gap-2"
@@ -209,7 +207,6 @@ export default function Requests() {
         </button>
       </div>
 
-      {/* TABS */}
       <div className="flex gap-6 border-b mb-6">
         <button 
             onClick={() => setActiveTab('market')}
@@ -227,7 +224,6 @@ export default function Requests() {
         )}
       </div>
 
-      {/* LIST */}
       {loading ? (
         <div className="flex justify-center p-10"><Loader2 className="animate-spin text-saka-green"/></div>
       ) : (
@@ -250,7 +246,6 @@ export default function Requests() {
                         !isOwner ? 'hover:border-saka-green cursor-pointer' : 'border-gray-200'
                     } ${isFulfilled ? 'opacity-75 bg-gray-50' : ''}`}
                 >
-                    
                     {!isOwner && (
                         <button 
                             onClick={(e) => handleReportOpen(e, req)}
@@ -260,21 +255,17 @@ export default function Requests() {
                             <AlertTriangle size={16} />
                         </button>
                     )}
-                    
                     <div className="flex justify-between items-start mb-3">
                         <h3 className="font-bold text-lg text-gray-800">{req.cropName}</h3>
                         <span className="bg-blue-50 text-blue-600 text-xs px-2 py-1 rounded font-bold shrink-0">
                             Target: ₱{req.targetPrice}/kg
                         </span>
                     </div>
-                    
                     <div className="text-gray-600 text-sm mb-4 space-y-1">
                         <p>Need: <span className="font-bold text-black">{req.quantity} kg</span></p>
                         <p className="text-xs text-gray-400">Posted by {req.requestorName}</p>
                         {req.note && <p className="italic text-gray-500">"{req.note}"</p>}
                     </div>
-
-                    {/* ACTION BUTTONS */}
                     {isOwner ? (
                         <div className="flex flex-col gap-2">
                             {!isFulfilled ? (
@@ -289,7 +280,6 @@ export default function Requests() {
                                     <CheckCircle size={16} /> Fulfilled
                                 </div>
                             )}
-
                             <div className="flex gap-2">
                                 <button onClick={(e) => handleEdit(e, req)} className="flex-1 bg-blue-50 text-blue-600 py-2 rounded-lg font-bold hover:bg-blue-100 transition flex items-center justify-center gap-1 text-xs">
                                     <Edit size={14} /> Edit
@@ -310,7 +300,6 @@ export default function Requests() {
         </div>
       )}
 
-      {/* MODALS */}
       {isModalOpen && <RequestFormModal onClose={closeModal} user={user} existingRequest={editingRequest} />}
       
       {isReportModalOpen && selectedReportTarget && (
@@ -321,12 +310,10 @@ export default function Requests() {
             onClose={handleReportClose}
         />
       )}
-
     </div>
   );
 }
 
-// --- FORM MODAL ---
 function RequestFormModal({ onClose, user, existingRequest }) {
   const [formData, setFormData] = useState({ 
     cropName: existingRequest?.cropName || '', 
@@ -352,7 +339,6 @@ function RequestFormModal({ onClose, user, existingRequest }) {
         });
         return; 
     }
-    
     setSubmitting(true);
     try {
         if (existingRequest) {
