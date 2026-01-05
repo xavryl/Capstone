@@ -9,6 +9,7 @@ import ReportModal from '../complaints/ReportModal';
 import Swal from 'sweetalert2';
 
 export default function CropCard({ crop }) {
+  // --- 1. HOOKS FIRST ---
   const { user } = useAuth();
   const navigate = useNavigate();
   
@@ -19,7 +20,7 @@ export default function CropCard({ crop }) {
 
   // Form States
   const [offerData, setOfferData] = useState({
-    price: crop.price_per_kg || 0, 
+    price: crop?.price_per_kg || 0, 
     quantity: 1,
     barterItem: '',
     barterQuantity: '',
@@ -27,22 +28,15 @@ export default function CropCard({ crop }) {
     proofFile: null
   });
 
+  // --- 2. SAFETY CHECK ---
+  if (!crop) return null;
+
   const isMyCrop = user?.id === crop.sellerId;
 
+  // --- HANDLER: OPEN OFFER MODAL ---
   const openOfferModal = () => {
     if (!user) {
-      Swal.fire({
-        title: 'Login Required',
-        text: "You must be logged in to make an offer.",
-        icon: 'info',
-        showCancelButton: true,
-        confirmButtonColor: '#16a34a',
-        confirmButtonText: 'Go to Login'
-      }).then((result) => {
-        if (result.isConfirmed) {
-            navigate('/login');
-        }
-      });
+      showLoginAlert("make an offer");
       return;
     }
     if (isMyCrop) {
@@ -54,24 +48,14 @@ export default function CropCard({ crop }) {
         });
         return;
     }
-    // Set default price to asking price when opening
     setOfferData(prev => ({...prev, price: crop.price_per_kg || 0}));
     setIsModalOpen(true);
   };
 
-  // --- Navigate to Chat Page (General Chat) ---
+  // --- HANDLER: CHAT ---
   const handleRequest = () => {
     if (!user) {
-        Swal.fire({
-            title: 'Login Required',
-            text: "Please login to chat with the seller.",
-            icon: 'info',
-            showCancelButton: true,
-            confirmButtonColor: '#16a34a',
-            confirmButtonText: 'Go to Login'
-        }).then((result) => {
-            if (result.isConfirmed) navigate('/login');
-        });
+        showLoginAlert("chat with the seller");
         return;
     }
     if (isMyCrop) {
@@ -84,7 +68,6 @@ export default function CropCard({ crop }) {
         return;
     }
 
-    // Simplified Navigation: Just go to chat with sellerId
     navigate('/chat', { 
       state: { 
         sellerId: crop.sellerId,
@@ -93,7 +76,33 @@ export default function CropCard({ crop }) {
     });
   };
 
-  // --- CONFIRM OFFER & REDIRECT TO CHAT ---
+  // --- HANDLER: REPORT ---
+  const handleReportClick = (e) => {
+    e.stopPropagation();
+    if (!user) {
+        showLoginAlert("report this user");
+        return;
+    }
+    setIsReportModalOpen(true);
+  };
+
+  // --- HELPER: LOGIN ALERT ---
+  const showLoginAlert = (action) => {
+    Swal.fire({
+        title: 'Login Required',
+        text: `You must be logged in to ${action}.`,
+        icon: 'info',
+        showCancelButton: true,
+        confirmButtonColor: '#16a34a',
+        confirmButtonText: 'Go to Login'
+    }).then((result) => {
+        if (result.isConfirmed) {
+            navigate('/login');
+        }
+    });
+  };
+
+  // --- HANDLER: SUBMIT OFFER ---
   const handleConfirmOffer = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
@@ -105,7 +114,6 @@ export default function CropCard({ crop }) {
         let isOffer = true;
         let offerDetails = {};
 
-        // --- 1. PREPARE DATA BASED ON TYPE ---
         if (crop.type === 'Barter') {
             if (!offerData.barterItem) throw new Error("Please specify what you are trading.");
             messageText = `I want to barter ${offerData.barterQuantity} of ${offerData.barterItem} for your ${offerData.quantity}kg of ${crop.title}.`;
@@ -133,8 +141,6 @@ export default function CropCard({ crop }) {
             };
         }
 
-        // --- 2. SAVE MESSAGE TO FIRESTORE (ALL TYPES) ---
-        // This ensures the offer exists BEFORE we navigate
         await addDoc(collection(db, `chats/${chatId}/messages`), {
             text: messageText,
             senderId: user.id,
@@ -147,8 +153,6 @@ export default function CropCard({ crop }) {
             ...offerDetails
         });
 
-        // --- 3. CREATE/UPDATE CONVERSATION HEADER ---
-        // CRITICAL FIX: Ensure no 'undefined' values are passed to setDoc
         await setDoc(doc(db, "conversations", chatId), {
             participants: [user.id, crop.sellerId],
             lastMessage: `Offer: ${crop.title}`,
@@ -159,22 +163,19 @@ export default function CropCard({ crop }) {
                     name: user.name || user.username || "Unknown", 
                     email: user.email || "", 
                     username: user.username || "Unknown", 
-                    photoURL: user.photoURL || null  // Forces null if undefined
+                    photoURL: user.photoURL || null  
                 },
                 [crop.sellerId]: { 
                     name: crop.sellerName || "Unknown", 
                     email: "", 
                     username: crop.sellerName || "Unknown",
-                    photoURL: null // We don't have seller photo here, default to null
+                    photoURL: null 
                 }
             },
             unreadBy: arrayUnion(crop.sellerId)
         }, { merge: true });
 
-        // --- 4. SUCCESS & NAVIGATE ---
         setIsModalOpen(false);
-        
-        // We only send sellerId now, because the message is already saved!
         navigate('/chat', { state: { sellerId: crop.sellerId } }); 
 
     } catch (err) {
@@ -201,11 +202,13 @@ export default function CropCard({ crop }) {
             
             <div className="absolute top-2 right-2 bg-white/90 px-2 py-1 rounded-md text-xs font-bold text-gray-700 shadow-sm flex items-center gap-2">
                 {crop.sellerName}
+                
+                {/* --- REPORT BUTTON --- */}
                 {!isMyCrop && (
                     <button 
-                        onClick={(e) => { e.stopPropagation(); setIsReportModalOpen(true); }}
+                        onClick={handleReportClick}
                         className="text-red-400 hover:text-red-600 p-0.5"
-                        title="Report this listing"
+                        title="Report this user"
                     >
                         <AlertTriangle size={14} />
                     </button>
@@ -282,7 +285,7 @@ export default function CropCard({ crop }) {
 
                 <form onSubmit={handleConfirmOffer} className="space-y-4">
                     
-                    {/* -- QUANTITY INPUT (For All Types) -- */}
+                    {/* -- QUANTITY INPUT -- */}
                     <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Quantity (kg)</label>
                         <input 
@@ -298,7 +301,7 @@ export default function CropCard({ crop }) {
                     {/* -- FOR SALE: COUNTER OFFER PRICE -- */}
                     {crop.type === 'For Sale' && (
                         <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-2">
+                            <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-1">
                                 <Tag size={14} className="text-saka-green"/> Your Counter Offer (₱/kg)
                             </label>
                             <input 
@@ -395,10 +398,14 @@ export default function CropCard({ crop }) {
         </div>
       )}
 
+      {/* --- REPORT MODAL NOW TARGETS THE USER --- */}
       {isReportModalOpen && user && (
           <ReportModal 
-            target={{ id: crop.id, name: crop.title }}
-            targetType="Crop"
+            target={{ 
+                id: crop.sellerId, 
+                name: crop.sellerName || "the Seller" // Fallback name
+            }}
+            targetType="User" // <--- IMPORTANT: This tells the modal to show "Report User"
             reporterId={user.id}
             onClose={() => setIsReportModalOpen(false)}
           />

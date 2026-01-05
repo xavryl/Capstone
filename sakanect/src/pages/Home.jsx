@@ -748,7 +748,7 @@ export default function Home() {
               </div>
               <div className="h-[350px] w-full bg-gray-50/30 rounded-2xl border border-dashed border-gray-200 p-2">
                 {mainChartConfig.data.length > 0 ? (
-                  <ResponsiveContainer width="100%" height="100%">
+                  <div className="h-64 w-full">
                     <AreaChart data={mainChartConfig.data} margin={{ top: 20, right: 20, left: 0, bottom: 0 }}>
                       <defs>
                         <linearGradient id="colorPrice" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#16a34a" stopOpacity={0.3}/><stop offset="95%" stopColor="#16a34a" stopOpacity={0}/></linearGradient>
@@ -761,7 +761,7 @@ export default function Home() {
                       <Area type="monotone" dataKey="realPrice" name="History" stroke="#16a34a" strokeWidth={3} fill="url(#colorPrice)" animationDuration={1500} connectNulls={true} />
                       <Area type="monotone" dataKey="predictedPrice" name="Forecast" stroke="#9CA3AF" strokeWidth={3} strokeDasharray="5 5" fill="url(#colorForecast)" animationDuration={1500} connectNulls={true} />
                     </AreaChart>
-                  </ResponsiveContainer>
+                  </div>
                 ) : (<div className="h-full flex flex-col items-center justify-center text-gray-400"><Filter size={48} className="mb-2 opacity-20" /><p>No history data found for <b>{chartCrop}</b>.</p></div>)}
               </div>
             </div>
