@@ -4,7 +4,7 @@ import { collection, addDoc, query, where, orderBy, onSnapshot, serverTimestamp,
 import { useAuth } from '../../context/AuthContext';
 import { useChat } from '../../context/ChatContext'; 
 import { useNavigate } from 'react-router-dom';
-import { Plus, MessageCircle, TrendingUp, User, X, Loader2, AlertTriangle, Edit, Trash2, CheckCircle } from 'lucide-react';
+import { Plus, MessageCircle, TrendingUp, User, X, Loader2, AlertTriangle, Edit, Trash2, CheckCircle, Send } from 'lucide-react';
 import ReportModal from '../complaints/ReportModal';
 
 // --- SWEETALERT IMPORT ---
@@ -32,10 +32,10 @@ export default function Requests() {
     let q;
 
     if (activeTab === 'mine' && user) {
-        // My Requests: Show all (Open and Fulfilled) so I can see history
+        // My Requests
         q = query(collectionRef, where("requestorId", "==", user.id), orderBy("createdAt", "desc"));
     } else {
-        // Market: Show ONLY "open" requests
+        // Market Requests
         q = query(collectionRef, where("status", "==", "open"), orderBy("createdAt", "desc"));
     }
 
@@ -50,7 +50,7 @@ export default function Requests() {
 
   // 2. HANDLERS
   
-  // --- UPDATED FULFILL HANDLER WITH POPUP ---
+  // --- UPDATED FULFILL HANDLER WITH CUSTOM MESSAGE MODAL ---
   const handleFulfill = async (req) => {
     if (!user) {
         Swal.fire({
@@ -65,29 +65,46 @@ export default function Requests() {
         });
         return;
     }
-    if (req.requestorId === user.id) return; // Owner can't chat with self
+    if (req.requestorId === user.id) return; 
 
-    // --- POPUP CONFIRMATION ---
-    const result = await Swal.fire({
-        title: 'Contact Buyer?',
-        text: `Do you want to message ${req.requestorName} about supplying ${req.cropName}?`,
-        icon: 'question',
+    // Define Default Values
+    const defaultSubject = `Supply Offer: ${req.quantity}kg of ${req.cropName}`;
+    const defaultMessage = `Hi, I saw your request for ${req.quantity}kg of ${req.cropName}. I can supply this!`;
+
+    // --- CUSTOM INPUT MODAL ---
+    const { value: formValues } = await Swal.fire({
+        title: 'Send Offer Message',
+        html: `
+            <div style="text-align: left;">
+                <label style="display:block; font-size:12px; font-weight:bold; color:#777; margin-bottom:5px;">SUBJECT (LOCKED)</label>
+                <input id="swal-subject" class="swal2-input" value="${defaultSubject}" disabled style="margin: 0 0 15px 0; width: 100%; background-color: #f3f4f6; color: #6b7280; font-weight: bold;">
+                
+                <label style="display:block; font-size:12px; font-weight:bold; color:#777; margin-bottom:5px;">MESSAGE</label>
+                <textarea id="swal-message" class="swal2-textarea" style="margin: 0; width: 100%; height: 100px;">${defaultMessage}</textarea>
+            </div>
+        `,
+        focusConfirm: false,
         showCancelButton: true,
-        confirmButtonColor: '#16a34a', // Saka Green
+        confirmButtonColor: '#16a34a',
         cancelButtonColor: '#d33',
-        confirmButtonText: 'Yes, Start Chat'
+        confirmButtonText: 'Send Message',
+        preConfirm: () => {
+            return document.getElementById('swal-message').value;
+        }
     });
 
-    if (result.isConfirmed) {
+    if (formValues) {
         const buyer = { 
             name: req.requestorName, 
             id: req.requestorId, 
             username: req.requestorName, 
             email: "" 
         };
-        const msg = `Hi, I saw your request for ${req.quantity}kg of ${req.cropName}. I can supply this!`;
         
-        startChat(buyer, msg);
+        // Combine subject and message for clarity in chat
+        const finalMsg = `**${defaultSubject}**\n\n${formValues}`;
+        
+        startChat(buyer, finalMsg);
     }
   };
 
@@ -147,7 +164,7 @@ export default function Requests() {
         text: "You won't be able to revert this!",
         icon: 'warning',
         showCancelButton: true,
-        confirmButtonColor: '#ef4444', // Red for delete
+        confirmButtonColor: '#ef4444', 
         cancelButtonColor: '#6b7280',
         confirmButtonText: 'Yes, delete it!'
     });
@@ -228,14 +245,12 @@ export default function Requests() {
             return (
                 <div 
                     key={req.id} 
-                    // Non-owners can click card to chat (triggering the new handleFulfill)
                     onClick={() => !isOwner && handleFulfill(req)}
                     className={`bg-white p-5 rounded-xl shadow-sm border transition group relative ${
                         !isOwner ? 'hover:border-saka-green cursor-pointer' : 'border-gray-200'
                     } ${isFulfilled ? 'opacity-75 bg-gray-50' : ''}`}
                 >
                     
-                    {/* Report Button (For Others) */}
                     {!isOwner && (
                         <button 
                             onClick={(e) => handleReportOpen(e, req)}
@@ -262,7 +277,6 @@ export default function Requests() {
                     {/* ACTION BUTTONS */}
                     {isOwner ? (
                         <div className="flex flex-col gap-2">
-                            {/* MARK FULFILLED BUTTON */}
                             {!isFulfilled ? (
                                 <button 
                                     onClick={(e) => { e.stopPropagation(); handleMarkFulfilled(req.id); }}
@@ -312,7 +326,7 @@ export default function Requests() {
   );
 }
 
-// --- FORM MODAL WITH SWEETALERT ---
+// --- FORM MODAL ---
 function RequestFormModal({ onClose, user, existingRequest }) {
   const [formData, setFormData] = useState({ 
     cropName: existingRequest?.cropName || '', 
