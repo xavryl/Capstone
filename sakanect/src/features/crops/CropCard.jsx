@@ -6,8 +6,6 @@ import { db, storage } from '../../config/firebase';
 import { collection, addDoc, serverTimestamp, setDoc, doc, arrayUnion } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import ReportModal from '../complaints/ReportModal'; 
-
-// --- SWEETALERT IMPORT ---
 import Swal from 'sweetalert2';
 
 export default function CropCard({ crop }) {
@@ -21,7 +19,7 @@ export default function CropCard({ crop }) {
 
   // Form States
   const [offerData, setOfferData] = useState({
-    price: crop.price_per_kg || 0, // NEW: Counter Price Field
+    price: crop.price_per_kg || 0, 
     quantity: 1,
     barterItem: '',
     barterQuantity: '',
@@ -86,11 +84,11 @@ export default function CropCard({ crop }) {
         return;
     }
 
+    // Simplified Navigation: Just go to chat with sellerId
     navigate('/chat', { 
       state: { 
         sellerId: crop.sellerId,
-        cropId: crop.id, 
-        cropTitle: crop.title
+        sellerName: crop.sellerName 
       } 
     });
   };
@@ -101,87 +99,72 @@ export default function CropCard({ crop }) {
     setIsSubmitting(true);
 
     try {
-        // --- 1. BARTER & DONATION LOGIC (Sends Message Directly via Firebase) ---
-        if (crop.type === 'Barter' || crop.type === 'Donation') {
-            let messageText = "";
-            let proofUrl = null;
+        const chatId = [user.id, crop.sellerId].sort().join("_");
+        let messageText = "";
+        let proofUrl = null;
+        let isOffer = true;
+        let offerDetails = {};
 
-            if (crop.type === 'Barter') {
-                if (!offerData.barterItem) throw new Error("Please specify what you are trading.");
-                messageText = `I want to barter ${offerData.barterQuantity} of ${offerData.barterItem} for your ${offerData.quantity}kg of ${crop.title}.`;
-            } else if (crop.type === 'Donation') {
-                if (!offerData.proofFile) throw new Error("Please upload proof of legitimacy.");
-                
-                const fileRef = ref(storage, `proofs/${user.id}/${Date.now()}_${offerData.proofFile.name}`);
-                const uploadRes = await uploadBytes(fileRef, offerData.proofFile);
-                proofUrl = await getDownloadURL(uploadRes.ref);
-                
-                messageText = `I requested a donation of ${offerData.quantity}kg of ${crop.title} for ${offerData.organizationName}. Proof attached.`;
-            }
+        // --- 1. PREPARE DATA BASED ON TYPE ---
+        if (crop.type === 'Barter') {
+            if (!offerData.barterItem) throw new Error("Please specify what you are trading.");
+            messageText = `I want to barter ${offerData.barterQuantity} of ${offerData.barterItem} for your ${offerData.quantity}kg of ${crop.title}.`;
+            offerDetails = { offerAmount: 0 }; 
 
-            // Create Transaction/Message logic for Barter/Donation
-            // (You can keep your existing logic here or redirect to Chat like For Sale)
-            // For consistency, let's redirect to Chat with a pre-filled message:
+        } else if (crop.type === 'Donation') {
+            if (!offerData.proofFile) throw new Error("Please upload proof of legitimacy.");
             
-            // NOTE: Since Donation requires file upload, we handle it here then redirect
-            const chatId = [user.id, crop.sellerId].sort().join("_");
+            const fileRef = ref(storage, `proofs/${user.id}/${Date.now()}_${offerData.proofFile.name}`);
+            const uploadRes = await uploadBytes(fileRef, offerData.proofFile);
+            proofUrl = await getDownloadURL(uploadRes.ref);
             
-            await addDoc(collection(db, `chats/${chatId}/messages`), {
-                text: messageText,
-                senderId: user.id,
-                senderName: user.username || user.name,
-                createdAt: serverTimestamp(),
-                isOffer: true, // Treat as offer
-                offerAmount: 0, // No money involved
-                cropTitle: crop.title,
-                cropId: crop.id,
-                offerStatus: 'pending',
-                proofUrl: proofUrl
-            });
+            messageText = `I requested a donation of ${offerData.quantity}kg of ${crop.title} for ${offerData.organizationName}. Proof attached.`;
+            offerDetails = { offerAmount: 0, proofUrl: proofUrl };
 
-            await setDoc(doc(db, "conversations", chatId), {
-                participants: [user.id, crop.sellerId],
-                lastMessage: `Request: ${crop.title}`,
-                lastSenderId: user.id,
-                lastMessageTime: serverTimestamp(),
-                users: {
-                    [user.id]: { name: user.name, email: user.email, username: user.username },
-                    [crop.sellerId]: { name: crop.sellerName, email: "", username: crop.sellerName }
-                },
-                unreadBy: arrayUnion(crop.sellerId)
-            }, { merge: true });
+        } else if (crop.type === 'For Sale') {
+            if (offerData.quantity > crop.quantity_kg) throw new Error(`Only ${crop.quantity_kg}kg available!`);
+            if (offerData.price <= 0) throw new Error("Please enter a valid price.");
 
-            setIsModalOpen(false);
-            navigate('/chat', { state: { sellerId: crop.sellerId } }); // Go to chat
-            return;
+            messageText = `I'd like to make an offer for ${crop.title}.`;
+            offerDetails = {
+                offerAmount: Number(offerData.price),
+                originalPrice: Number(crop.price_per_kg),
+                offerQuantity: Number(offerData.quantity)
+            };
         }
 
-        // --- 2. FOR SALE LOGIC (Redirects to Chat with Offer Params) ---
-        if (crop.type === 'For Sale') {
-            if (offerData.quantity > crop.quantity_kg) {
-                throw new Error(`Only ${crop.quantity_kg}kg available!`);
-            }
-            if (offerData.price <= 0) {
-                throw new Error("Please enter a valid price.");
-            }
+        // --- 2. SAVE MESSAGE TO FIRESTORE (ALL TYPES) ---
+        // This ensures the offer exists BEFORE we navigate
+        await addDoc(collection(db, `chats/${chatId}/messages`), {
+            text: messageText,
+            senderId: user.id,
+            senderName: user.username || user.name,
+            createdAt: serverTimestamp(),
+            isOffer: isOffer,
+            cropTitle: crop.title,
+            cropId: crop.id,
+            offerStatus: 'pending',
+            ...offerDetails
+        });
 
-            // We do NOT create the message here. 
-            // We pass the data to Chat.jsx via navigation state, 
-            // and Chat.jsx handles creating the standardized "Offer Card".
-            
-            navigate('/chat', { 
-                state: { 
-                  sellerId: crop.sellerId, 
-                  cropId: crop.id,
-                  cropTitle: crop.title,
-                  offerAmount: offerData.price, // User's Counter Offer
-                  originalPrice: crop.price_per_kg,
-                  offerQuantity: offerData.quantity, // User's Quantity
-                  sellerName: crop.sellerName
-                } 
-            });
-            setIsModalOpen(false);
-        }
+        // --- 3. CREATE/UPDATE CONVERSATION HEADER ---
+        await setDoc(doc(db, "conversations", chatId), {
+            participants: [user.id, crop.sellerId],
+            lastMessage: `Offer: ${crop.title}`,
+            lastSenderId: user.id,
+            lastMessageTime: serverTimestamp(),
+            users: {
+                [user.id]: { name: user.name, email: user.email, username: user.username, photoURL: user.photoURL || null },
+                [crop.sellerId]: { name: crop.sellerName, email: "", username: crop.sellerName }
+            },
+            unreadBy: arrayUnion(crop.sellerId)
+        }, { merge: true });
+
+        // --- 4. SUCCESS & NAVIGATE ---
+        setIsModalOpen(false);
+        
+        // We only send sellerId now, because the message is already saved!
+        navigate('/chat', { state: { sellerId: crop.sellerId } }); 
 
     } catch (err) {
         console.error("Offer Error", err);
@@ -278,7 +261,7 @@ export default function CropCard({ crop }) {
                 {/* Crop Summary */}
                 <div className="mb-4 bg-gray-50 p-3 rounded-lg flex gap-3 items-center border border-gray-100">
                     <div className="w-12 h-12 bg-gray-200 rounded-md overflow-hidden shrink-0">
-                        {crop.imageUrl && <img src={crop.imageUrl} className="w-full h-full object-cover"/>}
+                        {crop.imageUrl && <img src={crop.imageUrl} className="w-full h-full object-cover" alt="crop"/>}
                     </div>
                     <div>
                         <p className="font-bold text-sm text-gray-800">{crop.title}</p>
@@ -372,12 +355,12 @@ export default function CropCard({ crop }) {
                                                 <FileText className="text-purple-600 mb-1" size={24}/>
                                                 <p className="text-xs text-purple-700 font-bold">{offerData.proofFile.name}</p>
                                             </>
-                                        ) : (
+                                            ) : (
                                             <>
                                                 <Upload className="text-purple-400 mb-1" size={24}/>
                                                 <p className="text-xs text-gray-500">Upload ID or Document</p>
                                             </>
-                                        )}
+                                            )}
                                     </div>
                                     <input 
                                         type="file" className="hidden" accept="image/*,.pdf"

@@ -14,7 +14,6 @@ import {
 } from 'lucide-react';
 import ReportModal from '../complaints/ReportModal';
 import { API_URL } from '../../config/api'; 
-
 import Swal from 'sweetalert2';
 
 export default function Chat() {
@@ -35,9 +34,10 @@ export default function Chat() {
   
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
 
-  // --- HANDLE NAVIGATION ---
+  // --- 1. HANDLE NAVIGATION FROM CROPS PAGE ---
   useEffect(() => {
     const initChatFromNav = async () => {
+      // Check if we have incoming state (from Making an Offer)
       if (location.state?.sellerId && currentUser) {
         const { sellerId, cropId, cropTitle, sellerName, reportReason, reportDetails, offerAmount, originalPrice } = location.state;
         
@@ -69,31 +69,35 @@ export default function Chat() {
               autoMessage = `Hi, I am interested in your ${cropTitle}.`;
           }
 
+          // IF THIS IS AN OFFER, CREATE THE OFFER MESSAGE IMMEDIATELY
           if (offerAmount && cropTitle) {
              const chatId = [currentUser.id, sellerId].sort().join("_");
+             
+             // Create the "Rich Message" with Offer Details
              await addDoc(collection(db, `chats/${chatId}/messages`), {
-                text: `I'd like to make an offer for ${cropTitle}.`,
-                senderId: currentUser.id,
-                senderName: currentUser.username || currentUser.name,
-                createdAt: serverTimestamp(),
-                isOffer: true,          
-                offerAmount: offerAmount,
-                originalPrice: originalPrice,
-                cropTitle: cropTitle,
-                cropId: cropId,
-                offerStatus: 'pending' 
+               text: `I'd like to make an offer for ${cropTitle}.`,
+               senderId: currentUser.id,
+               senderName: currentUser.username || currentUser.name,
+               createdAt: serverTimestamp(),
+               isOffer: true,          
+               offerAmount: offerAmount,
+               originalPrice: originalPrice,
+               cropTitle: cropTitle,
+               cropId: cropId,
+               offerStatus: 'pending' 
              });
              
+             // Ensure conversation exists in list
              const conversationData = {
-                participants: [currentUser.id, sellerId], 
-                lastMessage: `Offer sent for ${cropTitle}`, 
-                lastSenderId: currentUser.id,
-                lastMessageTime: serverTimestamp(),
-                users: { 
-                    [currentUser.id]: { name: currentUser.name, username: currentUser.username, photoURL: currentUser.photoURL }, 
-                    [sellerId]: { name: userData.name, username: userData.username, photoURL: userData.photoURL } 
-                },
-                unreadBy: arrayUnion(sellerId)
+               participants: [currentUser.id, sellerId], 
+               lastMessage: `Offer sent for ${cropTitle}`, 
+               lastSenderId: currentUser.id,
+               lastMessageTime: serverTimestamp(),
+               users: { 
+                   [currentUser.id]: { name: currentUser.name, username: currentUser.username, photoURL: currentUser.photoURL }, 
+                   [sellerId]: { name: userData.name, username: userData.username, photoURL: userData.photoURL } 
+               },
+               unreadBy: arrayUnion(sellerId)
              };
              await setDoc(doc(db, "conversations", chatId), conversationData, { merge: true });
           }
@@ -108,6 +112,7 @@ export default function Chat() {
             isReportContext: isReportContext 
           });
 
+          // Clear state so refresh doesn't trigger duplicate offers
           navigate(location.pathname, { replace: true, state: {} });
 
         } catch (error) {
@@ -150,7 +155,6 @@ export default function Chat() {
     const q = query(collection(db, "friend_requests"), where("fromUid", "==", currentUser.id));
     const unsub = onSnapshot(q, (snap) => {
       const reqs = snap.docs.map(doc => ({ id: doc.id, ...doc.data() })).sort((a,b)=> (b.createdAt?.seconds||0)-(a.createdAt?.seconds||0));
-      // Store just IDs for easier checking
       setOutgoingRequests(reqs.map(r => r.toUid));
     });
     return () => unsub();
@@ -159,22 +163,14 @@ export default function Chat() {
  useEffect(() => {
     if (!currentUser) return;
     
-    // CORRECT: Only ask for conversations where I am a participant
     const q = query(
       collection(db, "conversations"), 
       where("participants", "array-contains", currentUser.id),
-      orderBy("lastMessageTime", "desc") // Optional: Requires an index
+      orderBy("lastMessageTime", "desc") 
     ); 
-
-    // Note: If you get a "Missing Index" error in console, remove the orderBy part temporarily
-    // const q = query(collection(db, "conversations"), where("participants", "array-contains", currentUser.id));
 
     const unsub = onSnapshot(q, (snap) => {
       const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      
-      // Sort manually in JS if you removed orderBy above
-      data.sort((a,b)=> (b.lastMessageTime?.seconds||0)-(a.lastMessageTime?.seconds||0));
-      
       setConversations(data);
     }, (error) => {
         console.error("Chat Error:", error);
@@ -190,7 +186,6 @@ export default function Chat() {
     try { 
         await updateDoc(doc(db, "conversations", chatId), { [`unread.${currentUser.id}`]: false }); 
     } catch (error) {
-        // Log error to satisfy no-empty, though typically safe to ignore if doc doesn't exist yet
         console.log("New chat initialized", error);
     }
   };
@@ -262,7 +257,7 @@ export default function Chat() {
     }
   };
 
-  // Search Logic (moved down to keep handlers together)
+  // Search Logic
   useEffect(() => {
     const searchUsers = async () => {
       if (searchTerm.trim() === '') { setSearchResults([]); return; }
@@ -617,7 +612,7 @@ function FullPageChatWindow({ activeChat, currentUser, onReport }) {
       }
   };
 
-  // --- UPDATED TRANSACTION HANDLER (WITH INVENTORY DEDUCTION & FIX FOR WINNER NOTIFICATION) ---
+  // --- UPDATED TRANSACTION HANDLER ---
   const handleTransactionAction = async (msgId, transactionId, action) => {
     try {
         const batch = writeBatch(db); 
