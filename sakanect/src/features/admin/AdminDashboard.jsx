@@ -5,17 +5,14 @@ import { useNavigate } from 'react-router-dom';
 import { 
   Trash2, ShieldAlert, User, Sprout, Loader2, AlertTriangle, 
   TrendingUp, TrendingDown, Minus, BarChart3, MessageCircle, Gavel, Eye,
-  HelpCircle, CheckCircle, X, Send
+  HelpCircle, CheckCircle, Send, X
 } from 'lucide-react';
 import { 
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell 
 } from 'recharts';
-
-// --- SWEETALERT IMPORT ---
 import Swal from 'sweetalert2';
 
 // --- API CONFIGURATION ---
-// Ensuring we hit the live Render backend
 const API_URL = "https://capstone-0h24.onrender.com";
 
 export default function AdminDashboard() {
@@ -32,18 +29,6 @@ export default function AdminDashboard() {
   const [predictions, setPredictions] = useState([]);
   const [marketStats, setMarketStats] = useState({ up: 0, down: 0, stable: 0 });
 
-  // Modal State
-  const [modal, setModal] = useState({ 
-    isOpen: false, 
-    type: 'reply', 
-    targetId: null,
-    targetName: '', 
-    contextHeader: '', 
-    contextBody: '' 
-  });
-  const [messageInput, setMessageInput] = useState('');
-  const [isSending, setIsSending] = useState(false);
-
   const [loading, setLoading] = useState(true);
 
   // --- FETCH DATA ---
@@ -51,9 +36,6 @@ export default function AdminDashboard() {
     const fetchData = async () => {
       setLoading(true);
       try {
-        console.log("🚀 DASHBOARD: Starting Data Fetch...");
-        console.log("Target API:", API_URL);
-
         // 1. Fetch Firebase Data
         const [userSnap, complaintSnap, ticketSnap] = await Promise.all([
           getDocs(collection(db, "users")),
@@ -71,33 +53,23 @@ export default function AdminDashboard() {
             if (cropsResponse.ok) {
                 const cropsData = await cropsResponse.json();
                 setCrops(cropsData.map(c => ({ ...c, id: c._id }))); 
-            } else {
-                console.error("❌ Crops API Error:", cropsResponse.status);
             }
         } catch (e) { console.error("❌ Crops Network Error:", e); }
 
         // 3. Fetch AI Predictions (MongoDB - Render)
         try {
-            // This endpoint now uses MongoDB Aggregation to find the newest data per crop
             const aiUrl = `${API_URL}/api/predictedPrices/latest`; 
-            console.log(`Fetching AI Data from: ${aiUrl}`);
-            
             const aiResponse = await fetch(aiUrl);
             
             if (aiResponse.ok) {
                 const data = await aiResponse.json();
-                console.log("✅ AI Data Received:", data); 
-                
                 const safeData = Array.isArray(data) ? data : [];
                 setPredictions(safeData);
                 
-                // Calculate Stats
                 const up = safeData.filter(i => i.trend === 'UP').length;
                 const down = safeData.filter(i => i.trend === 'DOWN').length;
                 const stable = safeData.filter(i => i.trend === 'STABLE').length;
                 setMarketStats({ up, down, stable });
-            } else {
-                console.error(`❌ AI Fetch Failed. Status: ${aiResponse.status} (${aiResponse.statusText})`);
             }
         } catch (e) { console.error("❌ AI Network Error:", e); }
 
@@ -114,7 +86,6 @@ export default function AdminDashboard() {
 
   const handleBanUser = async (userId, currentStatus) => {
     if (!userId) return Swal.fire('Error', 'User ID missing', 'error');
-
     const action = currentStatus === 'banned' ? 'unban' : 'ban';
     
     const result = await Swal.fire({
@@ -131,14 +102,7 @@ export default function AdminDashboard() {
             const newRole = currentStatus === 'banned' ? 'Member' : 'banned';
             await updateDoc(doc(db, "users", userId), { role: newRole });
             setUsers(users.map(u => u.id === userId ? { ...u, role: newRole } : u));
-            
-            Swal.fire({
-                icon: 'success',
-                title: 'Success',
-                text: `User has been ${action}ned.`,
-                timer: 1500,
-                showConfirmButton: false
-            });
+            Swal.fire('Success', `User has been ${action}ned.`, 'success');
         } catch (error) { console.error(error); }
     }
   };
@@ -155,10 +119,7 @@ export default function AdminDashboard() {
 
     if (result.isConfirmed) {
         try {
-            const response = await fetch(`${API_URL}/api/crops/${cropId}`, {
-                method: 'DELETE',
-            });
-
+            const response = await fetch(`${API_URL}/api/crops/${cropId}`, { method: 'DELETE' });
             if (response.ok) {
                 setCrops(crops.filter(c => c.id !== cropId));
                 Swal.fire('Deleted!', 'Listing removed.', 'success');
@@ -173,143 +134,138 @@ export default function AdminDashboard() {
       try {
           await updateDoc(doc(db, "tickets", ticketId), { status: 'resolved' });
           setTickets(prev => prev.map(t => t.id === ticketId ? { ...t, status: 'resolved' } : t));
-          Swal.fire({
-             icon: 'success',
-             title: 'Resolved',
-             text: 'Ticket marked as resolved.',
-             timer: 1500,
-             showConfirmButton: false
-          });
-      } catch (error) {
-          console.error("Error resolving ticket:", error);
-      }
+          Swal.fire('Resolved', 'Ticket marked as resolved.', 'success');
+      } catch (error) { console.error("Error resolving ticket:", error); }
   };
 
-  // --- MODAL & MESSAGING LOGIC ---
+  // --- UNIFIED MESSAGE MODAL HANDLER ---
+  const handleAdminMessage = async (actionType, targetId, targetName, contextData) => {
+    const adminId = auth.currentUser?.uid; 
+    if (!adminId) return Swal.fire('Error', 'Admin not authenticated.', 'error');
 
-  const openTicketModal = (userId, userName, ticketId, subject, originalMessage) => {
-    setModal({
-      isOpen: true,
-      type: 'reply', 
-      targetId: userId,
-      targetName: userName,
-      contextHeader: `Ticket #${ticketId}: ${subject}`,
-      contextBody: originalMessage
+    // 1. Configure Modal Content
+    let modalTitle = 'Send Message';
+    let defaultSubject = '';
+    let defaultMessage = '';
+    let confirmBtnColor = '#16a34a'; // Green default
+    let isWarning = false;
+
+    if (actionType === 'warn') {
+        modalTitle = '⚠️ Send Official Warning';
+        defaultSubject = `Administrative Warning: Violation of Terms`;
+        defaultMessage = `Dear ${targetName},\n\nYou have been reported for the following reason:\n"${contextData.reason}"\n\nThis is a formal notice. Please adhere to our community guidelines.\n\nRegards,\nAdmin Team`;
+        confirmBtnColor = '#ef4444'; // Red
+        isWarning = true;
+    } 
+    else if (actionType === 'reply') {
+        modalTitle = 'Reply to Ticket';
+        defaultSubject = `RE: Ticket #${contextData.ticketId} - ${contextData.subject}`;
+        defaultMessage = `Hi ${targetName},\n\nRegarding your ticket:\n"${contextData.originalMessage}"\n\n[Your response here]`;
+        confirmBtnColor = '#3b82f6'; // Blue
+    } 
+    else if (actionType === 'chat') {
+        modalTitle = 'Start Admin Chat';
+        defaultSubject = contextData?.subject || `Support: Admin Assistance`; 
+        defaultMessage = `Hi ${targetName}, I am contacting you regarding your account.`;
+        confirmBtnColor = '#16a34a'; // Green
+    }
+
+    // 2. Show SweetAlert with Subject & Message Inputs
+    const { value: messageBody } = await Swal.fire({
+        title: modalTitle,
+        html: `
+            <div style="text-align: left;">
+                <label style="display:block; font-size:12px; font-weight:bold; color:#777; margin-bottom:5px;">SUBJECT (LOCKED)</label>
+                <input id="swal-subject" class="swal2-input" value="${defaultSubject}" disabled style="margin: 0 0 15px 0; width: 100%; background-color: #f3f4f6; color: #6b7280; font-weight: bold;">
+                
+                <label style="display:block; font-size:12px; font-weight:bold; color:#777; margin-bottom:5px;">MESSAGE</label>
+                <textarea id="swal-message" class="swal2-textarea" style="margin: 0; width: 100%; height: 150px;">${defaultMessage}</textarea>
+            </div>
+        `,
+        focusConfirm: false,
+        showCancelButton: true,
+        confirmButtonColor: confirmBtnColor,
+        cancelButtonColor: '#6b7280',
+        confirmButtonText: 'Send Message',
+        preConfirm: () => {
+            return document.getElementById('swal-message').value;
+        }
     });
-    setMessageInput('');
-  };
 
-  const openWarnModal = (userId, userName, reason) => {
-    setModal({
-      isOpen: true,
-      type: 'warn', 
-      targetId: userId,
-      targetName: userName,
-      contextHeader: '⚠️ OFFICIAL WARNING',
-      contextBody: reason || 'Violation of terms'
-    });
-    setMessageInput('');
-  };
+    if (messageBody) {
+        try {
+            // 3. Prepare User Data
+            let finalTargetName = targetName || "User";
+            let finalTargetPhoto = null;
+            let finalTargetEmail = "";
 
-  const handleSubmitModal = async (e) => {
-    e.preventDefault();
-    if (!messageInput.trim()) return;
-    setIsSending(true);
+            try {
+                const userDoc = await getDoc(doc(db, "users", targetId));
+                if(userDoc.exists()) {
+                    const uData = userDoc.data();
+                    finalTargetName = uData.username || uData.name || finalTargetName;
+                    finalTargetPhoto = uData.photoURL || null;
+                    finalTargetEmail = uData.email || "";
+                }
+            } catch(e) { console.log("User fetch error", e); }
 
-    try {
-      const adminId = auth.currentUser?.uid; 
-      if (!adminId) { 
-        Swal.fire('Error', 'Admin not authenticated.', 'error');
-        setIsSending(false);
-        return; 
-      }
+            const finalMessage = `**${defaultSubject}**\n\n${messageBody}`;
+            const chatId = [adminId, targetId].sort().join("_");
 
-      // 1. Fetch User Details
-      let finalTargetName = modal.targetName || "User";
-      let finalTargetPhoto = null;
-      let finalTargetEmail = "";
+            // 4. Write Message
+            await addDoc(collection(db, `chats/${chatId}/messages`), {
+                text: finalMessage,
+                senderId: adminId,
+                senderName: "Admin",
+                createdAt: serverTimestamp(),
+                isReport: isWarning,
+                isTicketReply: actionType === 'reply'
+            });
 
-      if(modal.targetId) {
-          try {
-              const userDoc = await getDoc(doc(db, "users", modal.targetId));
-              if(userDoc.exists()) {
-                  const uData = userDoc.data();
-                  finalTargetName = uData.username || uData.name || finalTargetName;
-                  finalTargetPhoto = uData.photoURL || null;
-                  finalTargetEmail = uData.email || "";
-              }
-          } catch(err) { console.log("User fetch warning", err); }
-      }
+            // 5. Update Conversation (Safe Photo Handling)
+            await setDoc(doc(db, "conversations", chatId), {
+                participants: [adminId, targetId],
+                lastMessage: finalMessage,
+                lastSenderId: adminId,
+                lastMessageTime: serverTimestamp(),
+                users: {
+                    [adminId]: { name: "Admin", username: "Admin", email: "admin@sakanect.com", photoURL: null },
+                    [targetId]: { 
+                        name: finalTargetName, 
+                        username: finalTargetName, 
+                        email: finalTargetEmail, 
+                        photoURL: finalTargetPhoto || null 
+                    }
+                },
+                unreadBy: [targetId]
+            }, { merge: true });
 
-      // 2. Construct Message
-      let finalMessage = "";
-      if (modal.type === 'reply') {
-          finalMessage = `REFERENCE: ${modal.contextHeader}\n"${modal.contextBody}"\n\n💬 ADMIN REPLY:\n${messageInput}`;
-      } else {
-          finalMessage = `${modal.contextHeader}\nReason: ${modal.contextBody}\n\n📢 ADMIN MESSAGE:\n${messageInput}`;
-      }
+            // 6. Send Notification if Warning
+            if (isWarning) {
+                await addDoc(collection(db, "notifications"), {
+                    user_id: targetId,
+                    type: 'warning',
+                    message: `⚠️ WARNING: ${defaultSubject}`,
+                    read: false,
+                    created_at: serverTimestamp()
+                });
+            }
 
-      // 3. Generate Chat ID
-      const chatId = [adminId, modal.targetId].sort().join("_");
+            // 7. Success & Redirect
+            Swal.fire({
+                icon: 'success',
+                title: 'Message Sent',
+                text: 'Redirecting to chat...',
+                timer: 1500,
+                showConfirmButton: false
+            }).then(() => {
+                navigate('/chat', { state: { sellerId: targetId, sellerName: finalTargetName } });
+            });
 
-      await addDoc(collection(db, `chats/${chatId}/messages`), {
-        text: finalMessage,
-        senderId: adminId,
-        senderName: "Admin",
-        createdAt: serverTimestamp(),
-        isReport: modal.type === 'warn',       
-        isTicketReply: modal.type === 'reply'  
-      });
-
-      // 4. Update Conversation Metadata
-      let adminData = { username: "Admin", email: "admin@sakanect.com" };
-      try {
-          const adminDoc = await getDoc(doc(db, "users", adminId));
-          if(adminDoc.exists()) adminData = adminDoc.data();
-      } catch(err) { console.log("Admin fetch warning", err); }
-
-      await setDoc(doc(db, "conversations", chatId), {
-        participants: [adminId, modal.targetId], 
-        lastMessage: finalMessage, 
-        lastSenderId: adminId,
-        lastMessageTime: serverTimestamp(),
-        users: { 
-          [adminId]: { name: adminData.name || "Admin", username: "Admin", email: adminData.email, photoURL: adminData.photoURL || null }, 
-          [modal.targetId]: { name: finalTargetName, username: finalTargetName, email: finalTargetEmail, photoURL: finalTargetPhoto } 
-        },
-        unreadBy: [modal.targetId] 
-      }, { merge: true });
-
-      // 5. Send Notification
-      if (modal.type === 'warn') {
-        await addDoc(collection(db, "notifications"), {
-            user_id: modal.targetId,
-            type: 'warning',
-            message: `⚠️ WARNING: ${messageInput}`,
-            read: false,
-            created_at: serverTimestamp()
-        });
-      }
-
-      setModal({ ...modal, isOpen: false });
-      
-      Swal.fire({
-          icon: 'success',
-          title: 'Message Sent',
-          text: 'Redirecting to chat...',
-          timer: 1500,
-          showConfirmButton: false
-      }).then(() => {
-          navigate('/chat', { 
-            state: { sellerId: modal.targetId, sellerName: finalTargetName } 
-          });
-      });
-
-    } catch (error) {
-      console.error("Error sending message:", error);
-      Swal.fire('Error', 'Failed to send message.', 'error');
-    } finally {
-      setIsSending(false);
+        } catch (error) {
+            console.error("Msg Error:", error);
+            Swal.fire('Error', 'Failed to send message.', 'error');
+        }
     }
   };
 
@@ -330,52 +286,6 @@ export default function AdminDashboard() {
         <TabButton active={activeTab === 'complaints'} onClick={() => setActiveTab('complaints')} icon={<AlertTriangle size={18} />} label={`Reports (${complaints.length})`} />
         <TabButton active={activeTab === 'tickets'} onClick={() => setActiveTab('tickets')} icon={<HelpCircle size={18} />} label={`Tickets (${tickets.filter(t => t.status !== 'resolved').length})`} />
       </div>
-
-      {/* --- MODAL POPUP --- */}
-      {modal.isOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className={`bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200 border-t-8 ${modal.type === 'warn' ? 'border-red-600' : 'border-blue-600'}`}>
-            <div className={`p-4 flex justify-between items-center ${modal.type === 'warn' ? 'bg-red-50' : 'bg-blue-50'}`}>
-              <div className="flex items-center gap-2">
-                {modal.type === 'warn' ? <AlertTriangle className="text-red-600" size={20}/> : <MessageCircle className="text-blue-600" size={20}/>}
-                <h3 className={`font-bold text-lg ${modal.type === 'warn' ? 'text-red-700' : 'text-blue-700'}`}>
-                  {modal.type === 'warn' ? 'Send Warning' : 'Reply to Ticket'}
-                </h3>
-              </div>
-              <button onClick={() => setModal({...modal, isOpen: false})} className="text-gray-400 hover:text-gray-600"><X size={20}/></button>
-            </div>
-            
-            <div className="p-4 bg-gray-50 border-b text-sm text-gray-600">
-              <p className="font-bold text-gray-700 mb-1">{modal.contextHeader}</p>
-              <div className="bg-white p-2 rounded border border-gray-200 italic text-gray-500 line-clamp-3">
-                "{modal.contextBody}"
-              </div>
-            </div>
-
-            <form onSubmit={handleSubmitModal} className="p-4">
-              <textarea 
-                className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:outline-none min-h-[120px] resize-none text-gray-800 placeholder-gray-400"
-                placeholder={modal.type === 'warn' ? "Type warning message here..." : "Type your reply here..."}
-                value={messageInput}
-                onChange={(e) => setMessageInput(e.target.value)}
-                autoFocus
-              ></textarea>
-              
-              <div className="flex justify-end gap-2 mt-4">
-                <button type="button" onClick={() => setModal({...modal, isOpen: false})} className="px-4 py-2 text-gray-500 hover:bg-gray-100 rounded-lg font-medium">Cancel</button>
-                <button 
-                  type="submit" 
-                  disabled={isSending || !messageInput.trim()}
-                  className={`px-6 py-2 rounded-lg font-bold text-white flex items-center gap-2 shadow-sm transition-all transform active:scale-95 ${modal.type === 'warn' ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'} disabled:opacity-50 disabled:cursor-not-allowed`}
-                >
-                  {isSending ? <Loader2 className="animate-spin" size={18}/> : <Send size={18}/>}
-                  {modal.type === 'warn' ? 'Warn User' : 'Send Reply'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
 
       {/* Content Sections */}
       {activeTab === 'market_intel' && (
@@ -436,7 +346,12 @@ export default function AdminDashboard() {
 
       {activeTab === 'users' && (
         <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
-           <UserTable users={users} handleBanUser={handleBanUser} handleChatUser={(uid, name) => navigate('/chat', { state: { sellerId: uid, sellerName: name, cropTitle: 'Admin Support' } })} />
+           <UserTable 
+                users={users} 
+                handleBanUser={handleBanUser} 
+                // CHAT CLICK NOW OPENS MODAL WITH GENERIC SUBJECT
+                handleChatUser={(uid, name) => handleAdminMessage('chat', uid, name)} 
+           />
         </div>
       )}
 
@@ -453,9 +368,11 @@ export default function AdminDashboard() {
              users={users} 
              crops={crops} 
              setComplaints={setComplaints} 
-             openWarnModal={openWarnModal}
+             // WARN CLICK -> WARN TYPE
+             openWarnModal={(uid, name, reason) => handleAdminMessage('warn', uid, name, { reason })}
              handleBanUser={handleBanUser}
-             handleChatUser={(uid, name) => navigate('/chat', { state: { sellerId: uid, sellerName: name, cropTitle: 'Admin Case' } })}
+             // CHAT CLICK -> CHAT TYPE (with specific subject)
+             handleChatUser={(uid, name, reason) => handleAdminMessage('chat', uid, name, { subject: `Regarding Report: ${reason}` })}
            />
         </div>
       )}
@@ -466,7 +383,8 @@ export default function AdminDashboard() {
              tickets={tickets} 
              users={users}
              handleResolveTicket={handleResolveTicket} 
-             openTicketModal={openTicketModal}
+             // REPLY CLICK -> REPLY TYPE
+             openTicketModal={(uid, name, id, subject, msg) => handleAdminMessage('reply', uid, name, { ticketId: id, subject, originalMessage: msg })}
            />
         </div>
       )}
@@ -484,6 +402,7 @@ function TabButton({ active, onClick, icon, label }) {
   );
 }
 
+// FIX: Icon component capitalization
 function StatCard({ title, count, desc, color, bgColor, borderColor, Icon }) {
   return (
     <div className={`p-6 rounded-xl shadow-sm border-l-4 flex items-center justify-between bg-white ${borderColor}`}>
@@ -618,7 +537,7 @@ function ComplaintTable({ complaints, users, crops, setComplaints, openWarnModal
                             <td className="p-4 text-right">
                                 <div className="flex justify-end gap-2">
                                     <button 
-                                        onClick={() => isTargetFound && handleChatUser(resolved.id, resolved.name)} 
+                                        onClick={() => isTargetFound && handleChatUser(resolved.id, resolved.name, reasonText)} 
                                         className={`p-2 rounded transition ${isTargetFound ? 'bg-blue-50 text-blue-600 hover:bg-blue-100' : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}
                                         title={isTargetFound ? "Chat with User" : "User Not Found"}
                                         disabled={!isTargetFound}
