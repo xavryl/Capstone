@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { storage } from '../../config/firebase';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { Sprout, MapPin, Scale, Loader2, Upload, X } from 'lucide-react'; // Removed DollarSign
+import { Sprout, MapPin, Scale, Loader2, Upload, X } from 'lucide-react';
 import { useDropzone } from 'react-dropzone';
 import { getCoordinates, reverseGeocode } from '../../utils/geocoding';
 import { API_URL } from '../../config/api'; 
@@ -70,6 +70,7 @@ export default function EditCrop() {
         });
         setPreview(data.imageUrl);
 
+        // Handle Map Coordinates (MongoDB [lon, lat] -> Leaflet [lat, lon])
         if (data.coordinates) {
              const lat = data.coordinates.coordinates ? data.coordinates.coordinates[1] : data.coordinates.lat;
              const lon = data.coordinates.coordinates ? data.coordinates.coordinates[0] : data.coordinates.lon;
@@ -78,7 +79,6 @@ export default function EditCrop() {
       } catch (error) {
         console.error("Error fetching crop:", error);
         
-        // --- SWEETALERT: ERROR (Redirects after close) ---
         Swal.fire({
             icon: 'error',
             title: 'Not Found',
@@ -143,6 +143,30 @@ export default function EditCrop() {
 
   const handleUpdate = async (e) => {
     e.preventDefault();
+
+    // --- 1. PRICE CHECK ---
+    if (formData.type !== 'Donation' && (!formData.price_per_kg || Number(formData.price_per_kg) <= 0)) {
+        Swal.fire({
+          icon: 'warning',
+          title: 'Invalid Price',
+          text: 'Please enter a valid price greater than 0.',
+          confirmButtonColor: '#16a34a'
+        });
+        return;
+    }
+  
+    // --- 2. QUANTITY CHECK ---
+    const quantity = Number(formData.quantity_kg);
+    if (!quantity || quantity <= 0) {
+        Swal.fire({
+          icon: 'warning',
+          title: 'Invalid Quantity',
+          text: 'Please enter a quantity greater than 0 kg.',
+          confirmButtonColor: '#16a34a'
+        });
+        return;
+    }
+
     setSaving(true);
     try {
       let newImageUrl = preview;
@@ -159,7 +183,7 @@ export default function EditCrop() {
         title: formData.title,
         type: formData.type,
         price_per_kg: Number(formData.price_per_kg),
-        quantity_kg: Number(formData.quantity_kg),
+        quantity_kg: quantity,
         location: formData.location,
         coordinates: { type: 'Point', coordinates: [lon, lat] }, 
         imageUrl: newImageUrl
@@ -202,106 +226,129 @@ export default function EditCrop() {
   if (loading) return <div className="flex justify-center p-20"><Loader2 className="animate-spin text-saka-green" size={40} /></div>;
 
   return (
-    <div className="max-w-2xl mx-auto bg-white p-8 rounded-xl shadow-md border border-gray-100 mt-10">
+    <div className="max-w-6xl mx-auto bg-white p-8 rounded-xl shadow-md border border-gray-100 mt-10">
       <h2 className="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-2">
-        <Loader2 className="text-saka-green" /> Edit Listing
+        <Sprout className="text-saka-green" /> Edit Listing
       </h2>
 
-      <form onSubmit={handleUpdate} className="space-y-6">
-        
-        <div {...getRootProps()} className={`border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition ${isDragActive ? 'border-saka-green bg-green-50' : 'border-gray-300'}`}>
-          <input {...getInputProps()} />
-          {preview ? (
-            <div className="relative w-full h-48">
-              <img src={preview} alt="Preview" className="w-full h-full object-cover rounded-lg" />
-              <button 
-                type="button" 
-                onClick={(e) => { e.stopPropagation(); setPreview(null); setFormData(p => ({...p, imageFile: null})) }} 
-                className="absolute top-2 right-2 bg-red-500 text-white p-1 rounded-full hover:bg-red-600"
-              >
-                <X size={16} />
-              </button>
+      <form onSubmit={handleUpdate}>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <div className="space-y-6">
+                
+                {/* IMAGE UPLOAD */}
+                <div {...getRootProps()} className={`border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition ${isDragActive ? 'border-saka-green bg-green-50' : 'border-gray-300'}`}>
+                    <input {...getInputProps()} />
+                    {preview ? (
+                        <div className="relative w-full h-48">
+                        <img src={preview} alt="Preview" className="w-full h-full object-cover rounded-lg" />
+                        <button 
+                            type="button" 
+                            onClick={(e) => { e.stopPropagation(); setPreview(null); setFormData(p => ({...p, imageFile: null})) }} 
+                            className="absolute top-2 right-2 bg-red-500 text-white p-1 rounded-full hover:bg-red-600"
+                        >
+                            <X size={16} />
+                        </button>
+                        </div>
+                    ) : (
+                        <div className="flex flex-col items-center text-gray-500">
+                        <Upload size={40} className="mb-2 text-gray-400" />
+                        <p>Drag & drop to change photo</p>
+                        </div>
+                    )}
+                </div>
+
+                {/* CROP NAME */}
+                <div>
+                    <label className="block text-gray-700 font-medium mb-2">Crop Name</label>
+                    <input type="text" name="title" value={formData.title} className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-saka-green outline-none" onChange={handleChange} required />
+                </div>
+
+                {/* TRANSACTION TYPE */}
+                <div>
+                    <label className="block text-gray-700 font-medium mb-2">Transaction Type</label>
+                    <div className="flex gap-2">
+                        {['For Sale', 'Barter', 'Donation'].map((type) => (
+                        <label key={type} className="flex-1 flex items-center justify-center cursor-pointer bg-gray-50 px-2 py-2 rounded-lg border hover:border-saka-green transition text-sm">
+                            <input type="radio" name="type" value={type} checked={formData.type === type} onChange={handleChange} className="mr-2 text-saka-green focus:ring-saka-green" />
+                            {type}
+                        </label>
+                        ))}
+                    </div>
+                </div>
+
+                {/* PRICE & QUANTITY */}
+                <div className="grid grid-cols-2 gap-4">
+                    {formData.type !== 'Donation' && (
+                        <div>
+                            <label className="block text-gray-700 font-medium mb-2">Price/Kg (₱)</label>
+                            <input 
+                                type="number" 
+                                name="price_per_kg" 
+                                placeholder="0.00" 
+                                min="0.01"
+                                step="0.01"
+                                value={formData.price_per_kg} 
+                                className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-saka-green outline-none" 
+                                onChange={handleChange} 
+                                required 
+                            />
+                        </div>
+                    )}
+                    <div className={formData.type === 'Donation' ? 'col-span-2' : ''}>
+                        <label className="block text-gray-700 font-medium mb-2">Quantity (Kg)</label>
+                        <input 
+                            type="number" 
+                            name="quantity_kg" 
+                            placeholder="Total kg" 
+                            min="0.1"
+                            step="0.1"
+                            value={formData.quantity_kg}
+                            className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-saka-green outline-none" 
+                            onChange={handleChange} 
+                            required 
+                        />
+                    </div>
+                </div>
             </div>
-          ) : (
-            <div className="flex flex-col items-center text-gray-500">
-              <Upload size={40} className="mb-2 text-gray-400" />
-              <p>Drag & drop to change photo</p>
+
+            {/* MAP SECTION */}
+            <div className="flex flex-col h-full">
+                <label className="text-gray-700 font-medium mb-2 flex justify-between">
+                    Farm Location
+                    {mapLoading && <span className="text-xs text-saka-green flex items-center gap-1"><Loader2 size={12} className="animate-spin"/> Finding map location...</span>}
+                </label>
+                <div className="border rounded-lg overflow-hidden border-gray-300">
+                    <div className="relative border-b">
+                        <MapPin className="absolute left-3 top-3 text-gray-400" size={20} />
+                        <input 
+                            type="text" name="location" 
+                            placeholder="Click on map to set location" 
+                            value={formData.location} 
+                            onChange={handleChange} 
+                            onBlur={handleLocationBlur} 
+                            className="w-full pl-10 p-3 outline-none" 
+                            required 
+                        />
+                    </div>
+                    
+                    <div className="h-64 w-full bg-gray-100 z-0">
+                        <MapContainer center={mapPosition} zoom={13} style={{ height: '100%', width: '100%' }}>
+                            <TileLayer attribution='&copy; OpenStreetMap' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                            <LocationMarker />
+                            <MapUpdater position={mapPosition} />
+                        </MapContainer>
+                    </div>
+                </div>
+
+                {/* ACTION BUTTONS */}
+                <div className="flex gap-4 pt-4 mt-auto">
+                    <button type="button" onClick={() => navigate('/my-listings')} className="flex-1 bg-gray-200 text-gray-700 font-bold py-3 rounded-lg hover:bg-gray-300 transition">Cancel</button>
+                    <button disabled={saving} type="submit" className="flex-1 bg-saka-green text-white font-bold py-3 rounded-lg hover:bg-saka-dark transition shadow-lg flex justify-center items-center gap-2">
+                        {saving && <Loader2 className="animate-spin" size={20} />}
+                        {saving ? 'Updating...' : 'Save Changes'}
+                    </button>
+                </div>
             </div>
-          )}
-        </div>
-
-        <div>
-          <label className="block text-gray-700 font-medium mb-2">Crop Name</label>
-          <input type="text" name="title" value={formData.title} className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-saka-green outline-none" onChange={handleChange} required />
-        </div>
-
-        <div>
-          <label className="block text-gray-700 font-medium mb-2">Transaction Type</label>
-          <div className="flex gap-4">
-            {['For Sale', 'Barter', 'Donation'].map((type) => (
-              <label key={type} className="flex items-center cursor-pointer bg-gray-50 px-4 py-2 rounded-lg border hover:border-saka-green transition">
-                <input type="radio" name="type" value={type} checked={formData.type === type} onChange={handleChange} className="mr-2 text-saka-green focus:ring-saka-green" />
-                {type}
-              </label>
-            ))}
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {formData.type !== 'Donation' && (
-            <div>
-              <label className="block text-gray-700 font-medium mb-2">Price per Kg (₱)</label>
-              <div className="relative">
-                {/* --- CHANGED DOLLAR ICON TO PESO SYMBOL HERE --- */}
-                <span className="absolute left-3 top-3 text-gray-400 font-bold text-lg">₱</span>
-                <input type="number" name="price_per_kg" value={formData.price_per_kg} className="w-full pl-10 p-3 border rounded-lg focus:ring-2 focus:ring-saka-green outline-none" onChange={handleChange} required />
-              </div>
-            </div>
-          )}
-          <div>
-            <label className="block text-gray-700 font-medium mb-2">Quantity (Kg)</label>
-            <div className="relative">
-              <Scale className="absolute left-3 top-3 text-gray-400" size={20} />
-              <input type="number" name="quantity_kg" value={formData.quantity_kg} className="w-full pl-10 p-3 border rounded-lg focus:ring-2 focus:ring-saka-green outline-none" onChange={handleChange} required />
-            </div>
-          </div>
-        </div>
-
-        <div>
-          <label className="text-gray-700 font-medium mb-2 flex justify-between">
-              Farm Location
-              {mapLoading && <span className="text-xs text-saka-green flex items-center gap-1"><Loader2 size={12} className="animate-spin"/> Finding map location...</span>}
-          </label>
-          <div className="border rounded-lg overflow-hidden border-gray-300">
-             <div className="relative border-b">
-                <MapPin className="absolute left-3 top-3 text-gray-400" size={20} />
-                <input 
-                    type="text" name="location" 
-                    placeholder="Click on map to set location" 
-                    value={formData.location} 
-                    onChange={handleChange} 
-                    onBlur={handleLocationBlur} 
-                    className="w-full pl-10 p-3 outline-none" 
-                    required 
-                />
-             </div>
-             
-             <div className="h-64 w-full bg-gray-100 z-0">
-                <MapContainer center={mapPosition} zoom={13} style={{ height: '100%', width: '100%' }}>
-                    <TileLayer attribution='&copy; OpenStreetMap' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-                    <LocationMarker />
-                    <MapUpdater position={mapPosition} />
-                </MapContainer>
-             </div>
-          </div>
-        </div>
-
-        <div className="flex gap-4 pt-4">
-          <button type="button" onClick={() => navigate('/my-listings')} className="flex-1 bg-gray-200 text-gray-700 font-bold py-3 rounded-lg hover:bg-gray-300 transition">Cancel</button>
-          <button disabled={saving} type="submit" className="flex-1 bg-saka-green text-white font-bold py-3 rounded-lg hover:bg-saka-dark transition shadow-lg flex justify-center items-center gap-2">
-            {saving && <Loader2 className="animate-spin" size={20} />}
-            {saving ? 'Updating...' : 'Save Changes'}
-          </button>
         </div>
       </form>
     </div>
