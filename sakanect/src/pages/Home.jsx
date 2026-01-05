@@ -325,9 +325,10 @@ export default function Home() {
 
   const searchContainerRef = useRef(null);
 
-  const API_REAL_DB = 'http://localhost:5000/api/market-prices';
-  const API_MOCK_AI = 'https://688d806da459d5566b127728.mockapi.io/v1/PredictedPrices';
-  const API_CROPS   = 'http://localhost:5000/api/crops';
+  // --- CHANGED: Use Render Backend for AI Data & Crops ---
+  const API_REAL_DB = 'https://capstone-0h24.onrender.com/api/market-prices';
+  const API_MOCK_AI = 'https://capstone-0h24.onrender.com/api/predictedPrices/latest'; // <--- FIXED HERE
+  const API_CROPS   = 'https://capstone-0h24.onrender.com/api/crops'; // <--- FIXED HERE
 
   // --- CLICK OUTSIDE HANDLER FOR DROPDOWN ---
   useEffect(() => {
@@ -747,7 +748,7 @@ export default function Home() {
               </div>
               <div className="h-[350px] w-full bg-gray-50/30 rounded-2xl border border-dashed border-gray-200 p-2">
                 {mainChartConfig.data.length > 0 ? (
-                  <ResponsiveContainer width="100%" height="100%">
+                  <ResponsiveContainer className="h-64 w-full">
                     <AreaChart data={mainChartConfig.data} margin={{ top: 20, right: 20, left: 0, bottom: 0 }}>
                       <defs>
                         <linearGradient id="colorPrice" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#16a34a" stopOpacity={0.3}/><stop offset="95%" stopColor="#16a34a" stopOpacity={0}/></linearGradient>
