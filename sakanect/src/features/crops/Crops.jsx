@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { getCoordinates, calculateDistance } from '../../utils/geocoding';
 import { useAuth } from '../../context/AuthContext';
+import { API_URL } from '../../config/api';
 
 // --- COMPONENTS ---
 import CropCard from './CropCard';
@@ -12,9 +13,6 @@ import CropMap from './CropMap';
 
 // --- SWEETALERT IMPORT ---
 import Swal from 'sweetalert2';
-
-// --- HARDCODED API URL (To fix connection issues) ---
-const API_URL = "https://capstone-0h24.onrender.com";
 
 export default function Crops() {
   const { user } = useAuth();
@@ -39,22 +37,15 @@ export default function Crops() {
 
   // 1. Fetch Data
   const fetchCrops = async () => {
-    console.log("🔥 CROPS PAGE: Starting Fetch..."); // DEBUG LOG
     setLoading(true);
     try {
-      console.log(`Connecting to: ${API_URL}/api/crops`); // DEBUG LOG
       const response = await fetch(`${API_URL}/api/crops`);
-      
-      if (!response.ok) throw new Error(`Server Error: ${response.status}`);
+      if (!response.ok) throw new Error("Failed to connect to server");
       
       const data = await response.json();
-      console.log("✅ RAW DATA RECEIVED:", data); // DEBUG LOG
       
-      // Safety check
-      if (!Array.isArray(data)) {
-          console.error("❌ Data is not an array:", data);
-          throw new Error("Invalid data format received");
-      }
+      // Safety check: ensure data is an array
+      if (!Array.isArray(data)) throw new Error("Invalid data format received");
 
       const formattedCrops = data.map(crop => {
         let lat = 0, lng = 0;
@@ -70,18 +61,17 @@ export default function Crops() {
 
         return {
             ...crop,
-            id: crop._id || crop.id, 
+            id: crop._id || crop.id, // Handle both MongoDB _id and Firestore id
             sellerId: crop.sellerId || crop.user_id || "unknown_seller", 
             coordinates: { lat, lng } 
         };
       });
 
-      console.log("✅ FORMATTED CROPS:", formattedCrops); // DEBUG LOG
       setCrops(formattedCrops);
       setError(null);
     } catch (err) {
-      console.error("❌ FETCH ERROR:", err); // DEBUG LOG
-      setError(`Could not load crops: ${err.message}`);
+      console.error("Fetch error:", err);
+      setError("Could not load crops. Is the backend server running?");
     } finally {
       setLoading(false);
     }
@@ -94,7 +84,6 @@ export default function Crops() {
   // 2. Auto-Apply User Location
   useEffect(() => {
     if (user && user.locationCoords && user.city) {
-        console.log("📍 User Location Found:", user.city);
         setTargetCity(user.city);
         setCityCoords(user.locationCoords);
         setSortBy('closest'); 
@@ -131,10 +120,8 @@ export default function Crops() {
       return { ...crop, distance };
     })
     .filter((crop) => {
-      if (!crop) return false;
-      // Filter out invalid items
-      if (!crop.title) return false;
-      // Filter out sold items
+      // Basic Data Safety Checks
+      if (!crop || !crop.title) return false;
       if (crop.quantity_kg <= 0 || crop.status === 'sold_out') return false;
 
       const matchesSearch = 
@@ -164,6 +151,7 @@ export default function Crops() {
         return a.distance - b.distance; 
       }
 
+      // Default: Newest first
       const dateA = a.createdAt ? new Date(a.createdAt) : new Date(0);
       const dateB = b.createdAt ? new Date(b.createdAt) : new Date(0);
       return dateB - dateA; 
@@ -180,12 +168,13 @@ export default function Crops() {
   };
 
   return (
-    <div className="container mx-auto p-4 md:p-6 min-h-screen">
+    <div className="container mx-auto p-4 md:p-6">
       
       {/* HEADER & TOGGLE */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-gray-800">Marketplace</h1>
+          {/* CHANGED "Marketplace" TO "Listing" HERE */}
+          <h1 className="text-3xl font-bold text-gray-800">Listing</h1>
           <p className="text-gray-500 text-sm mt-1">
             {cityCoords && radius > 0
                 ? `Showing crops near ${targetCity} (within ${radius}km)` 
@@ -282,7 +271,7 @@ export default function Crops() {
       ) : (
         <>
           {viewMode === 'map' ? (
-            <div className="animate-in fade-in duration-300 h-[600px] w-full rounded-xl overflow-hidden border shadow-sm">
+            <div className="animate-in fade-in duration-300">
                 <CropMap crops={filteredCrops} />
             </div>
           ) : (
@@ -290,7 +279,7 @@ export default function Crops() {
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 animate-in fade-in duration-300">
                   {filteredCrops.map(crop => (
                     <div key={crop.id} className="relative group">
-                      {/* CROP CARD HANDLES ITS OWN MODALS NOW */}
+                      {/* SIMPLIFIED: No need to pass handlers, CropCard handles it */}
                       <CropCard crop={crop} />
                       
                       {cityCoords && crop.distance !== null && (
