@@ -5,7 +5,7 @@ import {
 import {
   TrendingUp, TrendingDown, Minus, Search, Sprout, Filter, 
   ArrowRight, Sparkles, Loader2, History as HistoryIcon, 
-  LayoutGrid, Map as MapIcon, ShoppingBag, CalendarDays, X, ChevronRight, ChevronDown
+  LayoutGrid, Map as MapIcon, ShoppingBag, CalendarDays, X, ChevronRight
 } from 'lucide-react';
 
 // --- IMPORTS ---
@@ -327,8 +327,8 @@ export default function Home() {
 
   // --- CHANGED: Use Render Backend for AI Data & Crops ---
   const API_REAL_DB = 'https://capstone-0h24.onrender.com/api/market-prices';
-  const API_MOCK_AI = 'https://capstone-0h24.onrender.com/api/predictedPrices/latest'; // <--- FIXED HERE
-  const API_CROPS   = 'https://capstone-0h24.onrender.com/api/crops'; // <--- FIXED HERE
+  const API_MOCK_AI = 'https://capstone-0h24.onrender.com/api/predictedPrices/latest'; 
+  const API_CROPS   = 'https://capstone-0h24.onrender.com/api/crops'; 
 
   // --- CLICK OUTSIDE HANDLER FOR DROPDOWN ---
   useEffect(() => {
@@ -667,7 +667,7 @@ export default function Home() {
               <button onClick={() => setActiveTab('dashboard')} className={`flex items-center gap-2 px-6 py-2.5 rounded-lg font-bold transition-all ${activeTab === 'dashboard' ? 'bg-white text-green-800 shadow-md' : 'text-green-100 hover:bg-green-800/50'}`}>
                 <TrendingUp size={18} /> Analytics
               </button>
-              <button onClick={() => setActiveTab('marketplace')} className={`flex items-center gap-2 px-6 py-2.5 rounded-lg font-bold transition-all ${activeTab === 'marketplace' ? 'bg-white text-green-800 shadow-md' : 'text-green-100 hover:bg-green-800/50'}`}>
+              <button onClick={() => setActiveTab('listing')} className={`flex items-center gap-2 px-6 py-2.5 rounded-lg font-bold transition-all ${activeTab === 'listing' ? 'bg-white text-green-800 shadow-md' : 'text-green-100 hover:bg-green-800/50'}`}>
                 <ShoppingBag size={18} /> Listing
               </button>
             </div>
@@ -677,8 +677,8 @@ export default function Home() {
 
       <div className="container mx-auto max-w-7xl px-6 -mt-16 space-y-8">
         
-        {/* --- MARKETPLACE VIEW --- */}
-        {activeTab === 'marketplace' && (
+        {/* --- LISTING VIEW --- */}
+        {activeTab === 'listing' && (
           <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
             <div className="bg-white p-4 rounded-2xl shadow-lg border border-gray-100 flex flex-col md:flex-row justify-between items-center gap-4 mb-6">
                <div className="relative w-full md:w-96">
@@ -781,7 +781,7 @@ export default function Home() {
                       type="text" 
                       placeholder="Search market..." 
                       className="pl-9 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 w-full"
-                      value={reportSearch}
+                      value={reportSearch} 
                       onChange={(e) => setReportSearch(e.target.value)}
                     />
                   </div>
